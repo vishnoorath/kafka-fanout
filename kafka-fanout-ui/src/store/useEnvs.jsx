@@ -292,7 +292,10 @@ export function EnvsProvider({ children }) {
             : action.cmd === 'reset-offsets'
             ? api.resetOffsets
             : null;
-        if (!fn) return;
+        if (!fn) {
+          action._reject?.(new Error(`Unknown cmd: ${action.cmd}`));
+          return;
+        }
         (async () => {
           try {
             await fn(action.id);
@@ -313,8 +316,10 @@ export function EnvsProvider({ children }) {
                 // ignore
               }
             }, 500);
+            action._resolve?.();
           } catch (exc) {
             baseDispatch({ type: 'TOAST', kind: 'error', text: `${action.cmd} failed: ${exc.message}` });
+            action._reject?.(exc);
           }
         })();
         return;

@@ -42,17 +42,21 @@ export default function RuntimeControls({ env }) {
     let cancelled = false;
     let timer = null;
     async function tick() {
+      let live = statusRef.current?.state;
       try {
         const s = await api.getStatus(env.id);
         if (cancelled) return;
         dispatch({ type: 'SET_STATUS', envId: env.id, status: s });
+        // Use the freshly fetched state directly — statusRef.current is
+        // only updated after React re-renders (via useEffect), so reading
+        // it here would give the *previous* cycle's value.
+        live = s?.state;
       } catch {
-        // ignore
+        // ignore; keep the last-known live value for interval calculation
       }
       if (cancelled) return;
       // Clear any optimistic pending state once the server reports a
       // terminal state (running or stopped).
-      const live = statusRef.current?.state;
       if (pendingRef.current && (live === 'running' || live === 'stopped' || live === 'error')) {
         setPendingCmd(null);
       }
@@ -65,9 +69,8 @@ export default function RuntimeControls({ env }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- status?.state intentionally NOT a dep;
-    // the tick reads `statusRef.current` each cycle so we don't re-create
-    // the polling chain on every state refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- statusRef is a ref, not a dep;
+    // we read it at the top of tick() as a fallback when the fetch fails.
   }, [env.id, dispatch]);
 
   // Logs: refresh every 3s while open.
@@ -108,7 +111,7 @@ export default function RuntimeControls({ env }) {
       }
     : { consumed: 0, routed: 0, failed: 0 };
 
-  function runCommand(cmd) {
+  async function runCommand(cmd) {
     setPendingCmd(cmd);
     // Clear the local log buffer on start so the "Show recent logs"
     // panel doesn't display lines from the previous run while we wait
@@ -118,7 +121,17 @@ export default function RuntimeControls({ env }) {
     if (cmd === 'start') {
       setLogs([]);
     }
-    dispatch({ type: 'RUNTIME_CMD', id: env.id, cmd });
+    try {
+      await new Promise((resolve, reject) => {
+        // Wrap dispatch so we can detect failures and clear the
+        // optimistic pending state if the API call itself errors out.
+        dispatch({ type: 'RUNTIME_CMD', id: env.id, cmd, _resolve: resolve, _reject: reject });
+      });
+    } catch {
+      // API call failed; clear optimistic state so buttons re-enable.
+      // The store already pushed an error toast.
+      setPendingCmd(null);
+    }
   }
 
   return (

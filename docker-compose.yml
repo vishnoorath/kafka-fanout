@@ -1,0 +1,59 @@
+name: kafka-fanout
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: kafka-fanout-backend:local
+    container_name: kafka-fanout-backend
+    restart: unless-stopped
+    ports:
+      # 8000 on the host maps to 8000 in the container. Drop the host
+      # port if you only want the frontend (via the proxy on :5173)
+      # to talk to the backend.
+      - "8000:8000"
+    environment:
+      # The DB file lives on the named volume below so it survives
+      # container restarts. The URL is relative to WORKDIR=/app/data.
+      DATABASE_URL: sqlite+aiosqlite:///./kafka_fanout.db
+      # The frontend is served from this origin in dev (and from any
+      # prod origin you deploy behind). Comma-separated list.
+      CORS_ORIGINS: http://localhost:5173
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      # Persist the SQLite file outside the container's writable layer.
+      - backend-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./kafka-fanout-ui
+      dockerfile: Dockerfile
+    image: kafka-fanout-frontend:local
+    container_name: kafka-fanout-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      # The preview server is the same in dev and prod for this image;
+      # we point the browser at it directly. There's no Vite proxy here
+      # because the preview server doesn't apply the dev proxy rules.
+      # If you need the dev proxy behavior, run `npm run dev` locally
+      # and use `docker compose up backend` to talk to the API.
+      NODE_ENV: production
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backend-data:
+    # Persists the SQLite DB + any future backend state across
+    # `docker compose down / up` cycles.
+    name: kafka-fanout-backend-data

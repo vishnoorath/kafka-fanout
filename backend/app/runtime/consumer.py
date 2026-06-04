@@ -97,6 +97,7 @@ class ConsumerTask:
         # Used by `_send_to_destination` to fall back to source security
         # when a destination inherits the source broker.
         self._env_payload: Optional[Dict[str, Any]] = None
+        self._consumer: Optional[AIOKafkaConsumer] = None
 
     # ---------- lifecycle ----------
 
@@ -110,6 +111,13 @@ class ConsumerTask:
         if self._task is None:
             return
         self._stop_event.set()
+        # Stop the consumer client immediately so that the `async for msg in consumer`
+        # loop yields and exits cleanly without waiting for the timeout.
+        if self._consumer is not None:
+            try:
+                await self._consumer.stop()
+            except Exception:
+                pass
         try:
             await asyncio.wait_for(self._task, timeout=timeout)
         except asyncio.TimeoutError:
@@ -127,10 +135,18 @@ class ConsumerTask:
 
     # ---------- main loop ----------
 
+    async def _cleanup(self, consumer: Optional[AIOKafkaConsumer]) -> None:
+        if consumer is not None:
+            try:
+                await consumer.stop()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("consumer stop failed: %s", exc)
+        await self._flush_counters(force=True)
+        await self._set_state("stopped", stopped_at=_now())
+
     async def _run(self) -> None:
         await self._set_state("starting", last_error=None, started_at=_now(), stopped_at=None)
         env_payload: Optional[Dict[str, Any]] = None
-        consumer: Optional[AIOKafkaConsumer] = None
         try:
             env_payload = await self._load_env_payload()
             if env_payload is None:
@@ -146,7 +162,7 @@ class ConsumerTask:
                 sasl_password=source.get("sasl_password"),
                 ssl_ca_location=source.get("ssl_ca_location"),
             )
-            consumer = AIOKafkaConsumer(
+            self._consumer = AIOKafkaConsumer(
                 source["topic"],
                 bootstrap_servers=source["brokers"],
                 group_id=source["consumer_group"],
@@ -154,14 +170,14 @@ class ConsumerTask:
                 enable_auto_commit=True,
                 **sec,
             )
-            await consumer.start()
+            await self._consumer.start()
             await self._set_state("running", last_error=None)
 
             # Periodically flush counters to the DB.
             flusher = asyncio.create_task(self._counter_flusher(), name=f"flush-{self.env_id}")
 
             try:
-                async for msg in consumer:
+                async for msg in self._consumer:
                     if self._stop_event.is_set():
                         break
                     await self._handle_message(msg, env_payload)
@@ -177,13 +193,9 @@ class ConsumerTask:
             log.exception("consumer %s crashed", self.env_id)
             await self._set_state("error", last_error=str(exc))
         finally:
-            if consumer is not None:
-                try:
-                    await consumer.stop()
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("consumer stop failed: %s", exc)
-            await self._flush_counters(force=True)
-            await self._set_state("stopped", stopped_at=_now())
+            consumer = self._consumer
+            self._consumer = None
+            await asyncio.shield(self._cleanup(consumer))
 
     # ---------- per-message ----------
 

@@ -184,7 +184,16 @@ class RuntimeManager:
 
     async def status(self, env_id: str) -> Optional[RuntimeStatus]:
         async with session_scope() as session:
-            return await session.get(RuntimeStatus, env_id)
+            row = await session.get(RuntimeStatus, env_id)
+            if row is not None:
+                # Self-healing: if the DB says running/starting/stopping, but the
+                # process restarted and we have no active task, sync it back to stopped.
+                task = self._tasks.get(env_id)
+                is_active = task is not None and task.is_running()
+                if not is_active and row.state in ("running", "starting", "stopping"):
+                    row.state = "stopped"
+                    await session.commit()
+            return row
 
     async def recent_logs(self, env_id: str, limit: int = 200) -> List[RuntimeLog]:
         limit = max(1, min(limit, 1000))
