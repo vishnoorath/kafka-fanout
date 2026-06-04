@@ -1,0 +1,61 @@
+/* Design tokens. Light theme only in v1. */
+
+:root {
+  /* Surfaces */
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f0efea;
+  --surface-3: #e6e5df;
+  --border: #d8d6cf;
+  --border-strong: #b9b6ad;
+
+  /* Text */
+  --text: #1a1a1a;
+  --text-muted: #6a6a6a;
+  --text-soft: #8a8a8a;
+
+  /* Accent / state */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #dbeafe;
+
+  --ok: #15803d;
+  --ok-soft: #dcfce7;
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+  --err: #b91c1c;
+  --err-soft: #fee2e2;
+  --neutral: #6b7280;
+  --neutral-soft: #f3f4f6;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Radii */
+  --radius-1: 4px;
+  --radius-2: 6px;
+  --radius-3: 10px;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+
+  /* Layout */
+  --sidebar-w: 240px;
+  --header-h: 56px;
+  --tabs-h: 40px;
+}

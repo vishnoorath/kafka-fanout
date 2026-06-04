@@ -1,0 +1,38 @@
+{
+  "name": "PROD-cdc",
+  "description": "Cross-broker CDC fan-out",
+  "enabled": true,
+  "dlq_topic": "cdc.dlq",
+  "dlq_brokers": "kafka-a.internal:9092",
+  "source": {
+    "brokers": "kafka-a.internal:9092",
+    "topic": "cdc.events",
+    "consumer_group": "fanout-cdc",
+    "offset_reset": "latest",
+    "security_protocol": "SASL_SSL",
+    "sasl_mechanism": "SCRAM-SHA-512",
+    "sasl_username": "fanout",
+    "sasl_password": "super-secret-pw"
+  },
+  "mappings": [
+    {
+      "key_path": "Message.TableName",
+      "operator": "contains",
+      "value": "cattle",
+      "case_insensitive": true,
+      "destinations": [
+        {
+          "use_source_broker": false,
+          "brokers": "kafka-b.external:9093",
+          "topic": "lake.cattles",
+          "security_protocol": "SSL",
+          "sasl_password": "dest-secret",
+          "headers": [
+            { "name": "X-Domain",    "value": "Connector",         "mode": "static" },
+            { "name": "X-TableName", "value": "Message.TableName", "mode": "from_message" }
+          ]
+        }
+      ]
+    }
+  ]
+}

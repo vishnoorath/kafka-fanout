@@ -1,0 +1,17 @@
+I want to develop a quick ReactJS based UI and FastAPi Python backend that uses SQLLite that gives users the following features
+
+1. Allows the user to create an env : e.g DEV | TEST | UAT | PROD. The Env Name can be provided by the user
+Every Env will have a
+   a. Source Kafka Topic Configursation
+	i. Broker Config
+        ii. Topic Name
+        iii. Consumer Group Name
+	iv. Offset : Earliest | Latest
+   b. Message Mapping
+       i. Condition This feature allows a fan-out of a message which is a JSON message based on a simple comparision of a Key to a Value. For now simple case insensitive string comparision is oaky
+       e.g. #Message.TableName = "Cattles"
+       ii. based on the condition meeting, a list of topics where the message will be copied and put. The topic can be on the same server as the Source Kafka or on a different Kafka Server. If on different kafka server, capture the same parameters as required by the source Kafka topic
+       iii. Ability to set a header for the Destination Kafka Message. The header can be a static string or a copy of one of the message properties. 
+		e.g 'X-Domain' : "Connector" 
+                    'X-TableName' : #Message.TableName
+       
