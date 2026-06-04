@@ -582,13 +582,26 @@ export function SingleDomainGroupingPanel({ env, dgIndex }) {
     dispatch(patchDraftDGs(env.id, next));
   }
 
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'success' | 'error'
+
   function save() {
     const payload = buildEnvPayload(env, state.drafts[env.id] || {});
-    if (isNew) {
-      dispatch({ type: 'CREATE_ENV', payload });
-    } else {
-      dispatch({ type: 'UPDATE_ENV', id: env.id, payload });
-    }
+    setSaveStatus('saving');
+    new Promise((resolve, reject) => {
+      if (isNew) {
+        dispatch({ type: 'CREATE_ENV', payload, _resolve: resolve, _reject: reject });
+      } else {
+        dispatch({ type: 'UPDATE_ENV', id: env.id, payload, _resolve: resolve, _reject: reject });
+      }
+    })
+      .then(() => {
+        setSaveStatus('success');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      })
+      .catch(() => {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      });
   }
 
   return (
@@ -607,8 +620,20 @@ export function SingleDomainGroupingPanel({ env, dgIndex }) {
           ← Back to environment
         </button>
         <span className="spacer" />
-        <button className="btn btn-primary" onClick={save}>
-          {isNew ? 'Create environment' : 'Save'}
+        <button
+          className={`btn btn-primary ${saveStatus === 'success' ? 'btn-success' : saveStatus === 'error' ? 'btn-error' : ''}`}
+          onClick={save}
+          disabled={saveStatus === 'saving'}
+        >
+          {saveStatus === 'saving'
+            ? 'Saving...'
+            : saveStatus === 'success'
+            ? 'Saved! ✓'
+            : saveStatus === 'error'
+            ? 'Failed! ✗'
+            : isNew
+            ? 'Create environment'
+            : 'Save'}
         </button>
       </div>
     </div>
@@ -648,13 +673,26 @@ export default function DomainGroupingsPanel({ env }) {
     setDGs([...dgs, newDomainGrouping()]);
   }
 
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'success' | 'error'
+
   function save() {
     const payload = buildEnvPayload(env, state.drafts[env.id] || {});
-    if (isNew) {
-      dispatch({ type: 'CREATE_ENV', payload });
-    } else {
-      dispatch({ type: 'UPDATE_ENV', id: env.id, payload });
-    }
+    setSaveStatus('saving');
+    new Promise((resolve, reject) => {
+      if (isNew) {
+        dispatch({ type: 'CREATE_ENV', payload, _resolve: resolve, _reject: reject });
+      } else {
+        dispatch({ type: 'UPDATE_ENV', id: env.id, payload, _resolve: resolve, _reject: reject });
+      }
+    })
+      .then(() => {
+        setSaveStatus('success');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      })
+      .catch(() => {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      });
   }
 
   return (
@@ -679,8 +717,20 @@ export default function DomainGroupingsPanel({ env }) {
         <button className="btn" onClick={addDG}>
           + Add domain grouping
         </button>
-        <button className="btn btn-primary" onClick={save}>
-          {isNew ? 'Create environment' : 'Save'}
+        <button
+          className={`btn btn-primary ${saveStatus === 'success' ? 'btn-success' : saveStatus === 'error' ? 'btn-error' : ''}`}
+          onClick={save}
+          disabled={saveStatus === 'saving'}
+        >
+          {saveStatus === 'saving'
+            ? 'Saving...'
+            : saveStatus === 'success'
+            ? 'Saved! ✓'
+            : saveStatus === 'error'
+            ? 'Failed! ✗'
+            : isNew
+            ? 'Create environment'
+            : 'Save'}
         </button>
       </div>
     </div>

@@ -257,9 +257,11 @@ export function EnvsProvider({ children }) {
             baseDispatch({ type: 'ADD_ENV', env });
             baseDispatch({ type: 'CLEAR_DRAFT', envId: env.id });
             baseDispatch({ type: 'TOAST', kind: 'success', text: `Created "${env.name}"` });
+            action._resolve?.(env);
             return env;
           } catch (exc) {
             baseDispatch({ type: 'TOAST', kind: 'error', text: `Create failed: ${exc.message}` });
+            action._reject?.(exc);
             throw exc;
           }
         })();
@@ -272,9 +274,11 @@ export function EnvsProvider({ children }) {
             baseDispatch({ type: 'REPLACE_ENV', env });
             baseDispatch({ type: 'CLEAR_DRAFT', envId: action.id });
             baseDispatch({ type: 'TOAST', kind: 'success', text: `Saved "${env.name}"` });
+            action._resolve?.(env);
             return env;
           } catch (exc) {
             baseDispatch({ type: 'TOAST', kind: 'error', text: `Save failed: ${exc.message}` });
+            action._reject?.(exc);
             throw exc;
           }
         })();

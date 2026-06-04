@@ -62,14 +62,27 @@ export default function SourcePanel({ env }) {
     dispatch({ type: 'PATCH_DRAFT', envId: env.id, patch: { source: next }, touched: { source: true } });
   }
 
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'success' | 'error'
+
   function save() {
     if (hasErrors) return;
     const payload = buildEnvPayload(env, state.drafts[env.id] || {});
-    if (isNew) {
-      dispatch({ type: 'CREATE_ENV', payload });
-    } else {
-      dispatch({ type: 'UPDATE_ENV', id: env.id, payload });
-    }
+    setSaveStatus('saving');
+    new Promise((resolve, reject) => {
+      if (isNew) {
+        dispatch({ type: 'CREATE_ENV', payload, _resolve: resolve, _reject: reject });
+      } else {
+        dispatch({ type: 'UPDATE_ENV', id: env.id, payload, _resolve: resolve, _reject: reject });
+      }
+    })
+      .then(() => {
+        setSaveStatus('success');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      })
+      .catch(() => {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      });
   }
 
   // We render the source with the draft overlay applied, but the
@@ -271,8 +284,20 @@ export default function SourcePanel({ env }) {
       </div>
 
       <div className="row-end mt-3">
-        <button className="btn btn-primary" onClick={save} disabled={hasErrors}>
-          {isNew ? 'Create environment' : 'Save'}
+        <button
+          className={`btn btn-primary ${saveStatus === 'success' ? 'btn-success' : saveStatus === 'error' ? 'btn-error' : ''}`}
+          onClick={save}
+          disabled={hasErrors || saveStatus === 'saving'}
+        >
+          {saveStatus === 'saving'
+            ? 'Saving...'
+            : saveStatus === 'success'
+            ? 'Saved! ✓'
+            : saveStatus === 'error'
+            ? 'Failed! ✗'
+            : isNew
+            ? 'Create environment'
+            : 'Save'}
         </button>
       </div>
     </div>

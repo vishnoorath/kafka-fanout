@@ -470,6 +470,28 @@ a:hover {
   text-decoration: underline;
 }
 
+.btn-success {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.btn-error {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
+}
+
+.btn-error:hover:not(:disabled) {
+  background: var(--err);
+  border-color: var(--err);
+}
+
 .btn-group {
   display: flex;
   gap: var(--space-2);

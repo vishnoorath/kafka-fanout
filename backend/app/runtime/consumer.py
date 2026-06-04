@@ -86,10 +86,13 @@ class ConsumerTask:
         env_id: str,
         pool: ProducerPool,
         dlq: DLQPublisher,
+        *,
+        manager: Optional[Any] = None,
     ) -> None:
         self.env_id = env_id
         self._pool = pool
         self._dlq = dlq
+        self._manager = manager
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
         self._counters = _Counters()
@@ -218,6 +221,7 @@ class ConsumerTask:
         # 2. Iterate domain groupings. For each DG, evaluate every match
         #    condition (OR-list). If any MC matches, fan out to ALL
         #    destinations of that DG.
+        any_dg_matched = False
         for dg in env_payload["domain_groupings"]:
             matched = False
             for mc in dg["match_conditions"]:
@@ -233,10 +237,25 @@ class ConsumerTask:
                     break
             if not matched:
                 continue
+            any_dg_matched = True
             for d in dg["destinations"]:
                 await self._send_to_destination(raw, d, parsed, key=msg.key)
                 self._counters.bump_routed(1)
         self._counters.bump_consumed()
+
+        if not any_dg_matched:
+            msg_str = json.dumps(parsed)
+            log.warning("env %s: unmatched message: %s", self.env_id, msg_str)
+            if self._manager is not None:
+                await self._manager.append_log(
+                    self.env_id,
+                    level="WARN",
+                    message=f"No matching route found for message: {msg_str}",
+                )
+                await self._manager.log_unmatched_message(
+                    self.env_id,
+                    message_payload=msg_str,
+                )
 
     async def _send_to_destination(
         self,

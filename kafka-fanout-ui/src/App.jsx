@@ -3,16 +3,14 @@ import Sidebar from './components/Sidebar.jsx';
 import EnvHeader from './components/EnvHeader.jsx';
 import SourcePanel from './components/SourcePanel.jsx';
 import DomainGroupingsPanel, { SingleDomainGroupingPanel } from './components/MappingsPanel.jsx';
-import TestMessagePanel from './components/TestMessagePanel.jsx';
 import RuntimeControls from './components/RuntimeControls.jsx';
 import Toasts from './components/Toasts.jsx';
 import { EnvsProvider, useEnvs } from './store/useEnvs.jsx';
 
 /**
- * Renders either the env-level view (Source + Mappings + Test + Runtime)
+ * Renders either the env-level view (Source + Mappings + Runtime)
  * or the single-DG focused view, based on the store's `selectedDGIndex`.
- * RuntimeControls + TestMessagePanel are always shown — runtime is
- * per-env, not per-DG.
+ * RuntimeControls is always shown — runtime is per-env, not per-DG.
  */
 function MainPane() {
   const { state, dispatch } = useEnvs();
@@ -33,7 +31,6 @@ function MainPane() {
         <EnvHeader env={env} />
         <div className="main-content">
           <SingleDomainGroupingPanel env={env} dgIndex={dgIndex} />
-          <TestMessagePanel env={env} />
           <RuntimeControls env={env} />
         </div>
       </>
@@ -64,7 +61,6 @@ function MainPane() {
         ) : (
           <DomainGroupingsPanel env={env} />
         )}
-        <TestMessagePanel env={env} />
         <RuntimeControls env={env} />
       </div>
     </>

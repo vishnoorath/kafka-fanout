@@ -18,7 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session_scope
-from app.models import Env, RuntimeLog, RuntimeStatus
+from app.models import Env, RuntimeLog, RuntimeStatus, UnmatchedMessage
 from app.runtime.consumer import ConsumerTask
 from app.runtime.producer import DLQPublisher, ProducerPool
 
@@ -73,7 +73,7 @@ class RuntimeManager:
             # Wipe counters + logs from any previous run so the UI
             # doesn't show stale data when the new consumer starts.
             await self._reset_status_and_logs(env_id)
-            task = ConsumerTask(env_id, self.pool, self.dlq)
+            task = ConsumerTask(env_id, self.pool, self.dlq, manager=self)
             self._tasks[env_id] = task
             await task.start()
 
@@ -172,6 +172,7 @@ class RuntimeManager:
                 row.messages_routed = 0
                 row.messages_failed = 0
                 row.last_message_at = None
+                row.last_error = None
             # Wipe logs so the "recent logs" panel doesn't show lines
             # from the previous run. The log table grows back from the
             # new consumer's appends.
@@ -233,4 +234,14 @@ class RuntimeManager:
                     delete(RuntimeLog)
                     .where(RuntimeLog.id.in_(ids[:excess]))
                 )
+            await session.commit()
+
+    async def log_unmatched_message(self, env_id: str, message_payload: str) -> None:
+        async with session_scope() as session:
+            row = UnmatchedMessage(
+                env_id=env_id,
+                ts=datetime.now(timezone.utc).isoformat(),
+                message=message_payload,
+            )
+            session.add(row)
             await session.commit()

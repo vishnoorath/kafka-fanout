@@ -306,3 +306,20 @@ class RuntimeLog(Base):
     __table_args__ = (Index("ix_runtime_logs_env_ts", "env_id", "ts"),)
 
     env: Mapped[Env] = relationship(back_populates="logs")
+
+
+class UnmatchedMessage(Base):
+    __tablename__ = "unmatched_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    env_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("envs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ts: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (Index("ix_unmatched_messages_env_ts", "env_id", "ts"),)
+
+    env: Mapped[Env] = relationship()
