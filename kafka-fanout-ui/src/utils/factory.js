@@ -1,14 +1,44 @@
 import { newId } from './id.js';
 
-/** Make a fresh mapping row in client-edit shape (no id needed; backend assigns). */
-export function newMapping() {
+/**
+ * The standard set of domain-grouping names the user's spreadsheet
+ * uses. The dropdown in the UI pre-populates from this list, but the
+ * name field is freeform — users can type any other name in the
+ * "Other…" option.
+ */
+export const DOMAIN_GROUPING_NAMES = [
+  'Registration',
+  'Breeding',
+  'Health',
+  'Association',
+  'Common',
+  'Multiple',
+  'Connector',
+  'Stockist',
+];
+
+/** Make a fresh domain-grouping row in client-edit shape. */
+export function newDomainGrouping() {
+  return {
+    name: '',
+    match_conditions: [newMatchCondition()],
+    destinations: [newDestination()],
+  };
+}
+
+/** Make a fresh match condition: one key_path, one operator, one value. */
+export function newMatchCondition() {
   return {
     key_path: 'Message.TableName',
     operator: 'equals',
-    value: '',
     case_insensitive: true,
-    destinations: [],
+    values: [newMatchConditionValue()],
   };
+}
+
+/** A single value in a match condition's OR-list. */
+export function newMatchConditionValue() {
+  return { value: '' };
 }
 
 /** Make a fresh destination row. */
@@ -35,8 +65,10 @@ export function newHeader() {
   };
 }
 
-/** Make a fresh empty env. */
+/** Make a fresh empty env with one default DG. */
 export function newEnv() {
+  const dg = newDomainGrouping();
+  dg.destinations[0].topic = 'example.destination';
   return {
     name: '',
     description: '',
@@ -54,7 +86,7 @@ export function newEnv() {
       sasl_password: null,
       ssl_ca_location: '',
     },
-    mappings: [],
+    domain_groupings: [dg],
   };
 }
 

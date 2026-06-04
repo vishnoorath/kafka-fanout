@@ -1,7 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useEnvs, effectiveEnv, hasDirtyDraft, buildEnvPayload } from '../store/useEnvs.jsx';
-import { newMapping, newDestination, newHeader, SECRET_PLACEHOLDER } from '../utils/factory.js';
-import { previewCondition } from '../utils/expression.js';
+import {
+  DOMAIN_GROUPING_NAMES,
+  newDomainGrouping,
+  newDestination,
+  newHeader,
+  newMatchCondition,
+  newMatchConditionValue,
+  SECRET_PLACEHOLDER,
+} from '../utils/factory.js';
+import { previewMatchCondition } from '../utils/expression.js';
 import { safeSearch } from '../lib/jmespath-preview.js';
 
 function moveItem(arr, from, to) {
@@ -11,12 +19,11 @@ function moveItem(arr, from, to) {
   return next;
 }
 
-function patchDraftMappings(envId, mappings) {
-  // Also touch every field so hasDirtyDraft reports true.
-  return { type: 'PATCH_DRAFT', envId, patch: { mappings }, touched: { mappings: true } };
+function patchDraftDGs(envId, dgs) {
+  return { type: 'PATCH_DRAFT', envId, patch: { domain_groupings: dgs }, touched: { domain_groupings: true } };
 }
 
-// ---------- Headers editor ----------
+// ---------- Headers editor (unchanged) ----------
 
 function HeadersEditor({ destination, onChange, testMessageParsed }) {
   const headers = destination.headers || [];
@@ -92,7 +99,7 @@ function HeadersEditor({ destination, onChange, testMessageParsed }) {
   );
 }
 
-// ---------- Destination editor ----------
+// ---------- Destination editor (unchanged shape, retargeted at DG) ----------
 
 function DestinationEditor({ destination, onChange, onRemove, testMessageParsed }) {
   const [openAdvanced, setOpenAdvanced] = useState(false);
@@ -226,31 +233,43 @@ function DestinationEditor({ destination, onChange, onRemove, testMessageParsed 
   );
 }
 
-// ---------- Condition editor ----------
+// ---------- Match condition editor (with values list) ----------
 
-function ConditionEditor({ mapping, onChange }) {
+function MatchConditionEditor({ mc, onChange }) {
   function patch(field, value) {
-    onChange({ ...mapping, [field]: value });
+    onChange({ ...mc, [field]: value });
   }
-  const preview = previewCondition(mapping);
+  function patchValue(idx, value) {
+    const next = (mc.values || []).map((v, i) => (i === idx ? { value } : v));
+    onChange({ ...mc, values: next });
+  }
+  function addValue() {
+    onChange({ ...mc, values: [...(mc.values || []), newMatchConditionValue()] });
+  }
+  function removeValue(idx) {
+    onChange({ ...mc, values: (mc.values || []).filter((_, i) => i !== idx) });
+  }
+  const preview = previewMatchCondition(mc);
   return (
-    <div>
+    <div className="card">
       <div className="form-group">
         <label>Key path (JMESPath)</label>
         <input
           className="input"
-          value={mapping.key_path || ''}
+          value={mc.key_path || ''}
           onChange={(e) => patch('key_path', e.target.value)}
           placeholder="Message.TableName"
         />
-        <span className="hint">Use JMESPath syntax, e.g. <code>Message.TableName</code> or <code>items[0].id</code>.</span>
+        <span className="hint">
+          Use JMESPath syntax, e.g. <code>Message.TableName</code> or <code>items[0].id</code>.
+        </span>
       </div>
       <div className="form-row">
         <div className="form-group" style={{ flex: '0 0 160px' }}>
           <label>Operator</label>
           <select
             className="select"
-            value={mapping.operator || 'equals'}
+            value={mc.operator || 'equals'}
             onChange={(e) => patch('operator', e.target.value)}
           >
             <option value="equals">equals</option>
@@ -258,95 +277,231 @@ function ConditionEditor({ mapping, onChange }) {
             <option value="contains">contains</option>
           </select>
         </div>
-        <div className="form-group">
-          <label>Value</label>
-          <input
-            className="input"
-            value={mapping.value || ''}
-            onChange={(e) => patch('value', e.target.value)}
-          />
-        </div>
         <div className="form-group" style={{ flex: '0 0 200px' }}>
           <label>&nbsp;</label>
           <label className="checkbox">
             <input
               type="checkbox"
-              checked={mapping.case_insensitive !== false}
+              checked={mc.case_insensitive !== false}
               onChange={(e) => patch('case_insensitive', e.target.checked)}
             />
             Case-insensitive
           </label>
         </div>
       </div>
+      <div className="form-group">
+        <label>Values (any match → fire)</label>
+        {(mc.values || []).map((v, idx) => (
+          <div key={idx} className="form-row mb-2" style={{ alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+              {idx === 0 ? <label>Value</label> : null}
+              <input
+                className="input"
+                value={v.value || ''}
+                onChange={(e) => patchValue(idx, e.target.value)}
+                placeholder={idx === 0 ? 'e.g. tbl_Deworming' : ''}
+              />
+            </div>
+            <button
+              className="btn-link"
+              onClick={() => removeValue(idx)}
+              disabled={(mc.values || []).length <= 1}
+              title={
+                (mc.values || []).length <= 1
+                  ? 'A match condition must have at least one value'
+                  : 'Remove value'
+              }
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button className="btn-link" onClick={addValue}>
+          + Add value
+        </button>
+      </div>
       <div className="preview-line">Match: {preview}</div>
     </div>
   );
 }
 
-// ---------- Mapping card ----------
+// ---------- Domain grouping name selector ----------
 
-function MappingCard({ index, mapping, onChange, onRemove, onMove, total, testMessageParsed }) {
+function DGNameSelector({ value, onChange }) {
+  const known = DOMAIN_GROUPING_NAMES.includes(value);
+  // The "Other…" option is selected when the current value isn't in
+  // the known list (and isn't empty).
+  const otherSelected = !known && (value || '').length > 0;
+  return (
+    <div className="form-row" style={{ alignItems: 'flex-end' }}>
+      <div className="form-group" style={{ flex: '0 0 220px', marginBottom: 0 }}>
+        <label>Domain Grouping</label>
+        <select
+          className="select"
+          value={otherSelected ? '__other__' : (value || '')}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '__other__') {
+              onChange(''); // Switch to freeform; user types into the input.
+            } else {
+              onChange(v);
+            }
+          }}
+        >
+          <option value="">— select —</option>
+          {DOMAIN_GROUPING_NAMES.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+          <option value="__other__">Other…</option>
+        </select>
+      </div>
+      {otherSelected ? (
+        <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+          <label>Custom name</label>
+          <input
+            className="input"
+            value={value || ''}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Custom domain grouping name"
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------- Domain grouping card ----------
+
+function DomainGroupingCard({
+  index,
+  dg,
+  onChange,
+  onRemove,
+  onMove,
+  total,
+  testMessageParsed,
+  showHeader = true,
+}) {
   const [collapsed, setCollapsed] = useState(false);
-  const [openAdvanced, setOpenAdvanced] = useState(false);
+  function patchMC(idx, value) {
+    const next = (dg.match_conditions || []).map((m, i) => (i === idx ? value : m));
+    onChange({ ...dg, match_conditions: next });
+  }
+  function addMC() {
+    onChange({ ...dg, match_conditions: [...(dg.match_conditions || []), newMatchCondition()] });
+  }
+  function removeMC(idx) {
+    onChange({
+      ...dg,
+      match_conditions: (dg.match_conditions || []).filter((_, i) => i !== idx),
+    });
+  }
   function patchDest(idx, value) {
-    const next = mapping.destinations.map((d, i) => (i === idx ? value : d));
-    onChange({ ...mapping, destinations: next });
+    const next = (dg.destinations || []).map((d, i) => (i === idx ? value : d));
+    onChange({ ...dg, destinations: next });
   }
   function addDest() {
-    onChange({ ...mapping, destinations: [...mapping.destinations, newDestination()] });
+    onChange({ ...dg, destinations: [...(dg.destinations || []), newDestination()] });
   }
   function removeDest(idx) {
-    onChange({ ...mapping, destinations: mapping.destinations.filter((_, i) => i !== idx) });
+    onChange({
+      ...dg,
+      destinations: (dg.destinations || []).filter((_, i) => i !== idx),
+    });
   }
   return (
     <div className="card">
-      <div className="card-header">
-        <span
-          className="card-title"
-          onClick={() => setCollapsed(!collapsed)}
-          style={{ cursor: 'pointer', flex: 1 }}
-        >
-          #{index + 1} — Match: {previewCondition(mapping)}
-        </span>
-        <div className="btn-group">
-          <button
-            className="btn-link"
-            onClick={() => onMove(index, index - 1)}
-            disabled={index === 0}
-            title="Move up"
+      {showHeader ? (
+        <div className="card-header">
+          <span
+            className="card-title"
+            onClick={() => setCollapsed(!collapsed)}
+            style={{ cursor: 'pointer', flex: 1 }}
           >
-            ↑
-          </button>
-          <button
-            className="btn-link"
-            onClick={() => onMove(index, index + 1)}
-            disabled={index === total - 1}
-            title="Move down"
-          >
-            ↓
-          </button>
-          <button className="btn-link" onClick={() => setCollapsed(!collapsed)}>
-            {collapsed ? 'Expand' : 'Collapse'}
-          </button>
-          <button className="btn-link" onClick={onRemove}>
-            Remove
-          </button>
+            #{index + 1} — {(dg.name || '(unnamed)')} ·{' '}
+            {(dg.match_conditions || []).length} match condition
+            {(dg.match_conditions || []).length === 1 ? '' : 's'} ·{' '}
+            {(dg.destinations || []).length} destination
+            {(dg.destinations || []).length === 1 ? '' : 's'}
+          </span>
+          <div className="btn-group">
+            {onMove ? (
+              <>
+                <button
+                  className="btn-link"
+                  onClick={() => onMove(index, index - 1)}
+                  disabled={index === 0}
+                  title="Move up"
+                >
+                  ↑
+                </button>
+                <button
+                  className="btn-link"
+                  onClick={() => onMove(index, index + 1)}
+                  disabled={index === total - 1}
+                  title="Move down"
+                >
+                  ↓
+                </button>
+              </>
+            ) : null}
+            <button className="btn-link" onClick={() => setCollapsed(!collapsed)}>
+              {collapsed ? 'Expand' : 'Collapse'}
+            </button>
+            {onRemove ? (
+              <button className="btn-link" onClick={onRemove}>
+                Remove
+              </button>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
       {collapsed ? null : (
         <>
-          <ConditionEditor mapping={mapping} onChange={onChange} />
+          <DGNameSelector
+            value={dg.name || ''}
+            onChange={(v) => onChange({ ...dg, name: v })}
+          />
+
+          <div className="mt-3">
+            <label className="hint">Match conditions (any matching → fire)</label>
+            {(dg.match_conditions || []).length === 0 ? (
+              <p className="muted">No match conditions — this DG will never fire.</p>
+            ) : (
+              (dg.match_conditions || []).map((mc, mcIdx) => (
+                <div key={mcIdx} className="mb-2">
+                  <MatchConditionEditor
+                    mc={mc}
+                    onChange={(v) => patchMC(mcIdx, v)}
+                  />
+                  {(dg.match_conditions || []).length > 1 ? (
+                    <div className="row-end">
+                      <button className="btn-link" onClick={() => removeMC(mcIdx)}>
+                        Remove condition
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            )}
+            <button className="btn mt-2" onClick={addMC}>
+              + Add match condition
+            </button>
+          </div>
+
           <div className="mt-3">
             <label className="hint">Destinations</label>
-            {mapping.destinations.length === 0 ? (
+            {(dg.destinations || []).length === 0 ? (
               <p className="muted">No destinations yet.</p>
             ) : (
-              mapping.destinations.map((d, idx) => (
+              (dg.destinations || []).map((d, dIdx) => (
                 <DestinationEditor
-                  key={idx}
+                  key={dIdx}
                   destination={d}
-                  onChange={(v) => patchDest(idx, v)}
-                  onRemove={() => removeDest(idx)}
+                  onChange={(v) => patchDest(dIdx, v)}
+                  onRemove={() => removeDest(dIdx)}
                   testMessageParsed={testMessageParsed}
                 />
               ))
@@ -361,12 +516,13 @@ function MappingCard({ index, mapping, onChange, onRemove, onMove, total, testMe
   );
 }
 
-// ---------- MappingsPanel ----------
+// ---------- Single-DG focused panel ----------
 
-export default function MappingsPanel({ env }) {
+export function SingleDomainGroupingPanel({ env, dgIndex }) {
   const { state, dispatch } = useEnvs();
   const eff = effectiveEnv(state, env.id);
-  const mappings = eff.mappings || [];
+  const dgs = eff.domain_groupings || [];
+  const dg = dgs[dgIndex];
   const dirty = hasDirtyDraft(state, env.id);
   const isNew = Boolean(state.drafts[env.id]?._create);
   const testMessageParsed = useMemo(() => {
@@ -377,21 +533,19 @@ export default function MappingsPanel({ env }) {
     }
   }, [state.testMessage]);
 
-  function setMappings(next) {
-    dispatch(patchDraftMappings(env.id, next));
+  if (!dg) {
+    return (
+      <div>
+        <p className="muted">
+          Domain grouping #{dgIndex + 1} no longer exists. It may have been removed.
+        </p>
+      </div>
+    );
   }
-  function patchMapping(idx, value) {
-    setMappings(mappings.map((m, i) => (i === idx ? value : m)));
-  }
-  function moveMapping(from, to) {
-    if (to < 0 || to >= mappings.length) return;
-    setMappings(moveItem(mappings, from, to));
-  }
-  function removeMapping(idx) {
-    setMappings(mappings.filter((_, i) => i !== idx));
-  }
-  function addMapping() {
-    setMappings([...mappings, newMapping()]);
+
+  function patch(value) {
+    const next = dgs.map((d, i) => (i === dgIndex ? value : d));
+    dispatch(patchDraftDGs(env.id, next));
   }
 
   function save() {
@@ -405,25 +559,91 @@ export default function MappingsPanel({ env }) {
 
   return (
     <div>
-      {mappings.length === 0 ? (
-        <p className="muted">No mappings yet — add one to start routing.</p>
+      <DomainGroupingCard
+        index={dgIndex}
+        dg={dg}
+        onChange={patch}
+        testMessageParsed={testMessageParsed}
+      />
+      <div className="row-end mt-3">
+        <button
+          className="btn-link"
+          onClick={() => dispatch({ type: 'SELECT', id: env.id })}
+        >
+          ← Back to environment
+        </button>
+        <span className="spacer" />
+        <button className="btn btn-primary" onClick={save}>
+          {isNew ? 'Create environment' : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Domain groupings panel (full env view) ----------
+
+export default function DomainGroupingsPanel({ env }) {
+  const { state, dispatch } = useEnvs();
+  const eff = effectiveEnv(state, env.id);
+  const dgs = eff.domain_groupings || [];
+  const dirty = hasDirtyDraft(state, env.id);
+  const isNew = Boolean(state.drafts[env.id]?._create);
+  const testMessageParsed = useMemo(() => {
+    try {
+      return JSON.parse(state.testMessage);
+    } catch {
+      return null;
+    }
+  }, [state.testMessage]);
+
+  function setDGs(next) {
+    dispatch(patchDraftDGs(env.id, next));
+  }
+  function patchDG(idx, value) {
+    setDGs(dgs.map((d, i) => (i === idx ? value : d)));
+  }
+  function moveDG(from, to) {
+    if (to < 0 || to >= dgs.length) return;
+    setDGs(moveItem(dgs, from, to));
+  }
+  function removeDG(idx) {
+    setDGs(dgs.filter((_, i) => i !== idx));
+  }
+  function addDG() {
+    setDGs([...dgs, newDomainGrouping()]);
+  }
+
+  function save() {
+    const payload = buildEnvPayload(env, state.drafts[env.id] || {});
+    if (isNew) {
+      dispatch({ type: 'CREATE_ENV', payload });
+    } else {
+      dispatch({ type: 'UPDATE_ENV', id: env.id, payload });
+    }
+  }
+
+  return (
+    <div>
+      {dgs.length === 0 ? (
+        <p className="muted">No domain groupings yet — add one to start routing.</p>
       ) : (
-        mappings.map((m, idx) => (
-          <MappingCard
+        dgs.map((dg, idx) => (
+          <DomainGroupingCard
             key={idx}
             index={idx}
-            mapping={m}
-            onChange={(v) => patchMapping(idx, v)}
-            onRemove={() => removeMapping(idx)}
-            onMove={moveMapping}
-            total={mappings.length}
+            dg={dg}
+            onChange={(v) => patchDG(idx, v)}
+            onRemove={() => removeDG(idx)}
+            onMove={moveDG}
+            total={dgs.length}
             testMessageParsed={testMessageParsed}
           />
         ))
       )}
       <div className="row-end mt-3 mb-4">
-        <button className="btn" onClick={addMapping}>
-          + Add mapping
+        <button className="btn" onClick={addDG}>
+          + Add domain grouping
         </button>
         <button className="btn btn-primary" onClick={save}>
           {isNew ? 'Create environment' : 'Save'}

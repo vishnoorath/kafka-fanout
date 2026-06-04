@@ -28,9 +28,9 @@ def redact_env(env: Dict[str, Any]) -> Dict[str, Any]:
     """Redact secrets on a serialized env dict (already in read shape)."""
     if "source" in env and env["source"] is not None:
         env["source"] = redact_source(env["source"])
-    for mapping in env.get("mappings", []) or []:
-        mapping["destinations"] = [
-            redact_destination(d) for d in mapping.get("destinations", []) or []
+    for dg in env.get("domain_groupings", []) or []:
+        dg["destinations"] = [
+            redact_destination(d) for d in dg.get("destinations", []) or []
         ]
     return env
 

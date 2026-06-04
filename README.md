@@ -59,6 +59,51 @@ cd backend
 pytest tests/ -v
 ```
 
+## Docker (one-shot dev stack)
+
+A `docker-compose.yml` at the repo root brings up the backend and a
+production-build preview of the frontend, with the SQLite DB persisted
+in a named volume.
+
+```powershell
+docker compose up --build
+```
+
+- Frontend: <http://localhost:5173>
+- Backend API: <http://localhost:8000> (OpenAPI docs at `/docs`)
+- SQLite file: stored in the `kafka-fanout-backend-data` named volume
+  (mounted at `/app/data` inside the backend container)
+
+To bring the stack down without losing the database:
+
+```powershell
+docker compose down
+```
+
+To wipe the database too:
+
+```powershell
+docker compose down -v
+```
+
+Override settings with environment variables in `docker-compose.yml`
+or via a local override file (e.g. `docker-compose.override.yml`):
+
+```yaml
+services:
+  backend:
+    environment:
+      CORS_ORIGINS: http://localhost:5173,http://localhost:4173
+      LOG_LEVEL: DEBUG
+```
+
+**Note on the frontend image:** it uses `vite preview`, a small Node
+server that serves the production build. The Vite dev proxy from
+`vite.config.js` is **not** applied here — the browser talks directly
+to the API on `:8000` and CORS handles the rest. If you need the dev
+proxy behavior (HMR + auto-reload), run `npm run dev` locally and
+`docker compose up backend` for the API.
+
 ## Pointing at an existing Kafka cluster
 
 Edit the env in the UI, fill in:

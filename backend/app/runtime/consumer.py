@@ -1,11 +1,13 @@
-"""Per-env consumer task.
+"""Per-env consumer task (reshape v2).
 
 A `ConsumerTask` wraps one `AIOKafkaConsumer` reading from a single
 source topic. For every message it:
 
   1. Tries to JSON-parse. On failure, publishes to the env's DLQ (if
      configured) and increments `messages_failed`. Skips fan-out.
-  2. For each mapping in position order, evaluates the condition.
+  2. For each domain grouping in position order, evaluates every match
+     condition (OR-list of values). If any match condition in a DG
+     matches, the message fans out to all of that DG's destinations.
   3. For each matched destination, builds headers (resolving
      `from_message` JMESPath) and produces the original raw payload to
      the destination topic.
@@ -35,13 +37,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import session_scope
 from app.models import (
     Destination,
+    DomainGrouping,
     Env,
     Header,
-    Mapping,
+    MatchCondition,
+    MatchConditionValue,
     RuntimeStatus,
     SourceConfig,
 )
-from app.runtime.matcher import build_headers, evaluate_condition
+from app.runtime.matcher import build_headers, evaluate_match_condition
 from app.runtime.producer import DLQPublisher, ProducerPool, security_dict
 
 log = logging.getLogger(__name__)
@@ -199,18 +203,25 @@ class ConsumerTask:
             self._counters.bump_failed()
             return
 
-        # 2. Iterate mappings in position order.
-        for m in env_payload["mappings"]:
-            result = evaluate_condition(
-                key_path=m["key_path"],
-                operator=m["operator"],
-                value=m["value"],
-                case_insensitive=bool(m["case_insensitive"]),
-                message=parsed,
-            )
-            if not result.matched:
+        # 2. Iterate domain groupings. For each DG, evaluate every match
+        #    condition (OR-list). If any MC matches, fan out to ALL
+        #    destinations of that DG.
+        for dg in env_payload["domain_groupings"]:
+            matched = False
+            for mc in dg["match_conditions"]:
+                r = evaluate_match_condition(
+                    key_path=mc["key_path"],
+                    operator=mc["operator"],
+                    values=mc["values"],
+                    case_insensitive=bool(mc["case_insensitive"]),
+                    message=parsed,
+                )
+                if r.matched:
+                    matched = True
+                    break
+            if not matched:
                 continue
-            for d in m["destinations"]:
+            for d in dg["destinations"]:
                 await self._send_to_destination(raw, d, parsed)
                 self._counters.bump_routed(1)
         self._counters.bump_consumed()
@@ -350,10 +361,11 @@ class ConsumerTask:
     # ---------- env loading ----------
 
     async def _load_env_payload(self) -> Optional[Dict[str, Any]]:
-        """Load a self-contained dict for the env: source + mappings +
-        destinations + headers. The consumer stashes the result on
-        `self._env_payload` so `_send_to_destination` can fall back to
-        source security when a destination inherits the source broker."""
+        """Load a self-contained dict for the env: source + domain
+        groupings + match_conditions + values + destinations + headers.
+        The consumer stashes the result on `self._env_payload` so
+        `_send_to_destination` can fall back to source security when a
+        destination inherits the source broker."""
         from sqlalchemy.orm import selectinload
 
         async with session_scope() as session:
@@ -362,9 +374,12 @@ class ConsumerTask:
                 .where(Env.id == self.env_id)
                 .options(
                     selectinload(Env.source),
-                    selectinload(Env.mappings).selectinload(Mapping.destinations).selectinload(
-                        Destination.headers
-                    ),
+                    selectinload(Env.domain_groupings)
+                        .selectinload(DomainGrouping.match_conditions)
+                        .selectinload(MatchCondition.values),
+                    selectinload(Env.domain_groupings)
+                        .selectinload(DomainGrouping.destinations)
+                        .selectinload(Destination.headers),
                 )
             )
             env = (await session.execute(stmt)).scalar_one_or_none()
@@ -390,16 +405,21 @@ def _env_to_dict(env: Env) -> Dict[str, Any]:
             "sasl_password": src.sasl_password,
             "ssl_ca_location": src.ssl_ca_location,
         },
-        "mappings": [
+        "domain_groupings": [
             {
-                "id": m.id,
-                "key_path": m.key_path,
-                "operator": m.operator,
-                "value": m.value,
-                "case_insensitive": bool(m.case_insensitive),
-                "destinations": [_dest_to_dict(d) for d in m.destinations],
+                "name": dg.name,
+                "match_conditions": [
+                    {
+                        "key_path": mc.key_path,
+                        "operator": mc.operator,
+                        "case_insensitive": bool(mc.case_insensitive),
+                        "values": [v.value for v in mc.values],
+                    }
+                    for mc in dg.match_conditions
+                ],
+                "destinations": [_dest_to_dict(d) for d in dg.destinations],
             }
-            for m in env.mappings
+            for dg in env.domain_groupings
         ],
     }
 

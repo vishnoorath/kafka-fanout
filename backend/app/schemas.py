@@ -3,10 +3,16 @@
 Write side accepts full env payloads (PRD §8). Read side returns the same
 shape but with `sasl_password` collapsed to `null` (handled in
 `app.security` after serialization, plus enforced here for typed safety).
+
+Reshape v2: `mappings` is gone. The hierarchy is now
+`Env → DomainGrouping → (MatchCondition, Destination)`. A MatchCondition
+has a single `key_path/operator/case_insensitive` and an OR-list of
+`values` (1..N). Destinations live on the DomainGrouping, not on the
+MatchCondition — if any match condition in a DG fires, the message
+fans out to all destinations of that DG.
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -63,23 +69,53 @@ class DestinationOut(BaseModel):
     headers: List[HeaderOut] = Field(default_factory=list)
 
 
-# ---------- Mapping ----------
+# ---------- MatchCondition (and its values) ----------
 
-class MappingIn(BaseModel):
+class MatchConditionValueIn(BaseModel):
+    """A single string in a match condition's OR-list of values."""
+    value: str
+
+
+class MatchConditionValueOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    value: str
+
+
+class MatchConditionIn(BaseModel):
+    """A match condition: one key_path, one operator, an OR-list of values."""
     key_path: str
     operator: Literal["equals", "not_equals", "contains"] = "equals"
-    value: str
     case_insensitive: bool = True
-    destinations: List[DestinationIn] = Field(default_factory=list)
+    values: List[MatchConditionValueIn] = Field(default_factory=list)
 
 
-class MappingOut(BaseModel):
+class MatchConditionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     key_path: str
     operator: str
-    value: str
     case_insensitive: bool
+    values: List[MatchConditionValueOut] = Field(default_factory=list)
+
+
+# ---------- DomainGrouping ----------
+
+class DomainGroupingIn(BaseModel):
+    """A named bucket of match conditions + destinations.
+
+    If any of `match_conditions` matches, the message is fanned out to
+    all of `destinations`.
+    """
+    name: str = ""
+    match_conditions: List[MatchConditionIn] = Field(default_factory=list)
+    destinations: List[DestinationIn] = Field(default_factory=list)
+
+
+class DomainGroupingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    match_conditions: List[MatchConditionOut] = Field(default_factory=list)
     destinations: List[DestinationOut] = Field(default_factory=list)
 
 
@@ -123,7 +159,7 @@ class EnvIn(BaseModel):
     dlq_topic: Optional[str] = None
     dlq_brokers: Optional[str] = None
     source: SourceConfigIn
-    mappings: List[MappingIn] = Field(default_factory=list)
+    domain_groupings: List[DomainGroupingIn] = Field(default_factory=list)
 
 
 class EnvOut(BaseModel):
@@ -139,7 +175,7 @@ class EnvOut(BaseModel):
     created_at: str
     updated_at: str
     source: Optional[SourceConfigOut] = None
-    mappings: List[MappingOut] = Field(default_factory=list)
+    domain_groupings: List[DomainGroupingOut] = Field(default_factory=list)
 
 
 # ---------- Runtime ----------
@@ -184,13 +220,28 @@ class TestDestinationOut(BaseModel):
     headers: List[TestHeaderOut]
 
 
-class TestResultOut(BaseModel):
-    mapping_index: int
-    key_path: Optional[str] = None
-    resolved: Optional[object] = None
+class TestMatchConditionOut(BaseModel):
+    """Per-match-condition result inside a domain grouping."""
+    match_condition_index: int
+    key_path: str
     matched: bool
-    reason: Optional[str] = None
+    # Index into the values list that won (None if no match).
+    matched_value_index: Optional[int] = None
+    # The string the resolved value was compared against (the winning value).
+    matched_value: Optional[str] = None
+    resolved: Optional[object] = None
     error: Optional[str] = None
+    reason: Optional[str] = None
+    expression_invalid: bool = False
+
+
+class TestResultOut(BaseModel):
+    """Per-domain-grouping result. `destinations` is only populated when
+    at least one match condition in the DG fired."""
+    domain_grouping_index: int
+    name: str
+    matched: bool
+    match_conditions: List[TestMatchConditionOut] = Field(default_factory=list)
     destinations: List[TestDestinationOut] = Field(default_factory=list)
 
 

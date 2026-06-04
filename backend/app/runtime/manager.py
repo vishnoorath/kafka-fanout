@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 from aiokafka.admin import AIOKafkaAdminClient
 from aiokafka.errors import GroupCoordinatorNotAvailableError, UnknownTopicOrPartitionError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session_scope
@@ -30,6 +30,18 @@ class RuntimeManager:
         self.pool = ProducerPool()
         self.dlq = DLQPublisher(self.pool)
         self._tasks: Dict[str, ConsumerTask] = {}
+        # Per-env asyncio lock so two concurrent start() calls can't
+        # both create new tasks (which previously caused a "stop then
+        # shows running" race when the second start spawned a fresh
+        # consumer that re-set state to "running" after Stop had
+        # already settled).
+        self._start_locks: Dict[str, asyncio.Lock] = {}
+
+    def _lock_for(self, env_id: str) -> asyncio.Lock:
+        lock = self._start_locks.get(env_id)
+        if lock is None:
+            lock = self._start_locks[env_id] = asyncio.Lock()
+        return lock
 
     # ---------- lifecycle ----------
 
@@ -46,19 +58,40 @@ class RuntimeManager:
     # ---------- start / stop ----------
 
     async def start(self, env_id: str) -> None:
-        existing = self._tasks.get(env_id)
-        if existing is not None and existing.is_running():
-            return  # idempotent
-        task = ConsumerTask(env_id, self.pool, self.dlq)
-        self._tasks[env_id] = task
-        await task.start()
+        # Serialize concurrent start() calls per env so a double-click
+        # (or React strict-mode double effect) can't spawn a second
+        # consumer task that races against the first.
+        async with self._lock_for(env_id):
+            existing = self._tasks.get(env_id)
+            if existing is not None:
+                if existing.is_running():
+                    return  # idempotent
+                # The previous task finished (e.g. after Stop). Drop it
+                # so a fresh start gets a clean ConsumerTask with fresh
+                # in-memory counters and stop event.
+                self._tasks.pop(env_id, None)
+            # Wipe counters + logs from any previous run so the UI
+            # doesn't show stale data when the new consumer starts.
+            await self._reset_status_and_logs(env_id)
+            task = ConsumerTask(env_id, self.pool, self.dlq)
+            self._tasks[env_id] = task
+            await task.start()
 
     async def stop(self, env_id: str) -> None:
-        task = self._tasks.get(env_id)
-        if task is None:
-            return  # idempotent
-        await task.stop()
-        # Keep the entry so the user can see counters; drop on next start.
+        # Serialize stop() with start() so a fast Stop→Start sequence
+        # can't interleave (stop finishes, then start re-checks the
+        # finished task and properly drops it under the lock).
+        async with self._lock_for(env_id):
+            task = self._tasks.get(env_id)
+            if task is None:
+                return  # idempotent
+            await task.stop()
+            # Drop the finished task so a subsequent start() spawns a
+            # fresh one (rather than re-using a task whose internal
+            # _stop_event is already set, which would cause start to
+            # immediately exit).
+            if not task.is_running():
+                self._tasks.pop(env_id, None)
 
     async def reset_offsets(self, env_id: str) -> None:
         """Stop the consumer, then delete the consumer group so the next
@@ -122,6 +155,30 @@ class RuntimeManager:
                 ssl_ca_location=env.source.ssl_ca_location,
             )
             return env.source.consumer_group, env.source.brokers, sec
+
+    async def _reset_status_and_logs(self, env_id: str) -> None:
+        """Wipe counters, last_message_at, and all logs for the env.
+
+        Called at the start of every `start()` so the UI shows clean
+        numbers on the next poll (otherwise old counts from a previous
+        run linger until the new consumer's first message). The
+        RuntimeStatus row is preserved (we just zero out the counter
+        columns) — the new consumer will overwrite them as it runs.
+        """
+        async with session_scope() as session:
+            row = await session.get(RuntimeStatus, env_id)
+            if row is not None:
+                row.messages_consumed = 0
+                row.messages_routed = 0
+                row.messages_failed = 0
+                row.last_message_at = None
+            # Wipe logs so the "recent logs" panel doesn't show lines
+            # from the previous run. The log table grows back from the
+            # new consumer's appends.
+            await session.execute(
+                delete(RuntimeLog).where(RuntimeLog.env_id == env_id)
+            )
+            await session.commit()
 
     # ---------- status / logs ----------
 

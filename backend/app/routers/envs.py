@@ -19,9 +19,11 @@ from app import schemas
 from app.db import get_session
 from app.models import (
     Destination,
+    DomainGrouping,
     Env,
     Header,
-    Mapping,
+    MatchCondition,
+    MatchConditionValue,
     RuntimeStatus,
     SourceConfig,
 )
@@ -43,15 +45,19 @@ def _now() -> str:
 
 
 async def _load_env(session: AsyncSession, env_id: str) -> Env:
-    """Eager-load env with source, mappings, destinations, headers."""
+    """Eager-load env with source, domain_groupings, match_conditions,
+    values, destinations, headers."""
     stmt = (
         select(Env)
         .where(Env.id == env_id)
         .options(
             selectinload(Env.source),
-            selectinload(Env.mappings).selectinload(Mapping.destinations).selectinload(
-                Destination.headers
-            ),
+            selectinload(Env.domain_groupings)
+                .selectinload(DomainGrouping.match_conditions)
+                .selectinload(MatchCondition.values),
+            selectinload(Env.domain_groupings)
+                .selectinload(DomainGrouping.destinations)
+                .selectinload(Destination.headers),
             selectinload(Env.status),
         )
     )
@@ -79,9 +85,12 @@ async def list_envs(session: AsyncSession = Depends(get_session)) -> list:
         select(Env)
         .options(
             selectinload(Env.source),
-            selectinload(Env.mappings).selectinload(Mapping.destinations).selectinload(
-                Destination.headers
-            ),
+            selectinload(Env.domain_groupings)
+                .selectinload(DomainGrouping.match_conditions)
+                .selectinload(MatchCondition.values),
+            selectinload(Env.domain_groupings)
+                .selectinload(DomainGrouping.destinations)
+                .selectinload(Destination.headers),
             selectinload(Env.status),
         )
         .order_by(Env.name)
@@ -252,9 +261,12 @@ async def export_all(session: AsyncSession = Depends(get_session)) -> dict:
         select(Env)
         .options(
             selectinload(Env.source),
-            selectinload(Env.mappings).selectinload(Mapping.destinations).selectinload(
-                Destination.headers
-            ),
+            selectinload(Env.domain_groupings)
+                .selectinload(DomainGrouping.match_conditions)
+                .selectinload(MatchCondition.values),
+            selectinload(Env.domain_groupings)
+                .selectinload(DomainGrouping.destinations)
+                .selectinload(Destination.headers),
         )
         .order_by(Env.name)
     )
@@ -328,9 +340,12 @@ async def import_envs(
         select(Env)
         .options(
             selectinload(Env.source),
-            selectinload(Env.mappings).selectinload(Mapping.destinations).selectinload(
-                Destination.headers
-            ),
+            selectinload(Env.domain_groupings)
+                .selectinload(DomainGrouping.match_conditions)
+                .selectinload(MatchCondition.values),
+            selectinload(Env.domain_groupings)
+                .selectinload(DomainGrouping.destinations)
+                .selectinload(Destination.headers),
             selectinload(Env.status),
         )
         .order_by(Env.name)

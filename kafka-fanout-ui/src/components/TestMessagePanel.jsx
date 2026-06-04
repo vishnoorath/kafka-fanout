@@ -3,41 +3,51 @@ import { useEnvs, effectiveEnv } from '../store/useEnvs.jsx';
 import { safeSearch } from '../lib/jmespath-preview.js';
 
 /**
- * Sticky test-message panel. Pure client-side evaluation — the same
- * jmespath library the backend uses, with the same strict-typing rule
- * (non-scalar result -> not matched, error "non-scalar result").
+ * Client-side evaluation of a single match condition.
+ * Mirrors the backend's `evaluate_match_condition` (OR-list semantics).
  */
-function evaluateClient(mapping, parsedMessage) {
-  const r = safeSearch(mapping.key_path, parsedMessage);
+function evaluateMatchConditionClient(mc, parsedMessage) {
+  const r = safeSearch(mc.key_path, parsedMessage);
   if (!r.ok) {
-    return { matched: false, resolved: null, error: `invalid JMESPath: ${r.error}`, kind: 'error' };
+    return {
+      matched: false,
+      resolved: null,
+      error: `invalid JMESPath: ${r.error}`,
+      kind: 'error',
+      matchedValueIndex: null,
+      matchedValue: null,
+    };
   }
   const v = r.value;
   if (v == null) {
-    return { matched: false, resolved: null, error: 'key not found', kind: 'unmatched' };
+    return { matched: false, resolved: null, error: 'key not found', kind: 'unmatched', matchedValueIndex: null, matchedValue: null };
   }
   if (typeof v === 'object') {
-    return { matched: false, resolved: v, error: 'non-scalar result', kind: 'unmatched' };
+    return { matched: false, resolved: v, error: 'non-scalar result', kind: 'unmatched', matchedValueIndex: null, matchedValue: null };
   }
-  // Coerce non-strings.
+  const values = (mc.values || []).map((x) => (x && typeof x === 'object' ? x.value : x)) || [];
+  if (values.length === 0) {
+    return { matched: false, resolved: v, error: 'no values to match against', kind: 'unmatched', matchedValueIndex: null, matchedValue: null };
+  }
+  const caseInsensitive = mc.case_insensitive !== false;
   const vs = String(v);
-  let target = mapping.value;
-  let a = vs;
-  let b = target;
-  if (mapping.case_insensitive !== false) {
-    a = a.toLowerCase();
-    b = b.toLowerCase();
+  for (let i = 0; i < values.length; i++) {
+    let target = String(values[i] == null ? '' : values[i]);
+    let a = vs;
+    let b = target;
+    if (caseInsensitive) {
+      a = a.toLowerCase();
+      b = b.toLowerCase();
+    }
+    let matched = false;
+    if (mc.operator === 'equals') matched = a === b;
+    else if (mc.operator === 'not_equals') matched = a !== b;
+    else if (mc.operator === 'contains') matched = a.includes(b);
+    if (matched) {
+      return { matched: true, resolved: v, error: null, kind: 'matched', matchedValueIndex: i, matchedValue: values[i] };
+    }
   }
-  let matched = false;
-  if (mapping.operator === 'equals') matched = a === b;
-  else if (mapping.operator === 'not_equals') matched = a !== b;
-  else if (mapping.operator === 'contains') matched = a.includes(b);
-  return {
-    matched,
-    resolved: v,
-    error: matched ? null : 'resolved value did not match',
-    kind: matched ? 'matched' : 'unmatched',
-  };
+  return { matched: false, resolved: v, error: 'resolved value did not match', kind: 'unmatched', matchedValueIndex: null, matchedValue: null };
 }
 
 function stringify(v) {
@@ -50,7 +60,7 @@ export default function TestMessagePanel({ env }) {
   const { state, dispatch } = useEnvs();
   const [collapsed, setCollapsed] = useState(false);
   const eff = effectiveEnv(state, env.id);
-  const mappings = eff.mappings || [];
+  const dgs = eff.domain_groupings || [];
   const parsed = useMemo(() => {
     try {
       return JSON.parse(state.testMessage);
@@ -79,27 +89,44 @@ export default function TestMessagePanel({ env }) {
             <p className="muted mt-2">Invalid JSON — nothing to evaluate.</p>
           ) : (
             <div className="mt-2">
-              {mappings.length === 0 ? (
-                <p className="muted">Add mappings to see results.</p>
+              {dgs.length === 0 ? (
+                <p className="muted">Add a domain grouping to see results.</p>
               ) : (
-                mappings.map((m, idx) => {
-                  const result = evaluateClient(m, parsed);
+                dgs.map((dg, dgIdx) => {
+                  const mcs = dg.match_conditions || [];
+                  const mcResults = mcs.map((mc) => evaluateMatchConditionClient(mc, parsed));
+                  const anyMatched = mcResults.some((r) => r.matched);
                   return (
-                    <div key={idx} className="mb-2">
+                    <div key={dgIdx} className="mb-3">
                       <div className="match-result">
-                        <span className={`match-badge ${result.kind}`}>
-                          {result.kind === 'matched' ? '✓' : result.kind === 'error' ? '!' : '·'}
+                        <span className={`match-badge ${anyMatched ? 'matched' : (mcResults.some((r) => r.kind === 'error') ? 'error' : 'unmatched')}`}>
+                          {anyMatched ? '✓' : (mcResults.some((r) => r.kind === 'error') ? '!' : '·')}
                         </span>
-                        <span className="mono">#{idx + 1} {m.key_path}</span>
-                        <span className="muted">→ {stringify(result.resolved)}</span>
-                        {result.error ? <span className="muted">({result.error})</span> : null}
+                        <span className="mono">#{dgIdx + 1} {dg.name || '(unnamed)'}</span>
+                        <span className="muted">— {anyMatched ? 'matched' : 'no match'}</span>
                       </div>
-                      {result.matched ? (
+                      {mcResults.map((r, mcIdx) => (
+                        <div key={mcIdx} className="mb-1" style={{ marginLeft: 24 }}>
+                          <div className="match-result">
+                            <span className={`match-badge ${r.kind}`}>
+                              {r.kind === 'matched' ? '✓' : r.kind === 'error' ? '!' : '·'}
+                            </span>
+                            <span className="mono">MC#{mcIdx + 1} {mcs[mcIdx].key_path}</span>
+                            <span className="muted">→ {stringify(r.resolved)}</span>
+                            {r.matched ? (
+                              <span className="muted"> matched "{r.matchedValue}"</span>
+                            ) : r.error ? (
+                              <span className="muted">({r.error})</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                      {anyMatched ? (
                         <div className="destination-block">
-                          {m.destinations.length === 0 ? (
+                          {(dg.destinations || []).length === 0 ? (
                             <em className="muted">No destinations</em>
                           ) : (
-                            m.destinations.map((d, didx) => {
+                            (dg.destinations || []).map((d, didx) => {
                               const headers = (d.headers || []).map((h) => {
                                 if (h.mode === 'from_message') {
                                   const r = safeSearch(h.value, parsed);

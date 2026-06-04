@@ -8,7 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.runtime.matcher import MatchResult, build_headers, evaluate_condition, _preprocess
+from app.runtime.matcher import (
+    MatchResult,
+    build_headers,
+    evaluate_condition,
+    evaluate_match_condition,
+    _preprocess,
+)
 
 
 # ---------- helpers ----------
@@ -317,3 +323,94 @@ def test_hash_only_resolves_to_root():
     # so the strict-typing rule returns non-scalar result.
     assert r.matched is False
     assert r.error == "non-scalar result"
+
+
+# ---------- evaluate_match_condition (OR-list semantics) ----------
+
+
+def test_mc_or_list_first_match_wins():
+    r = evaluate_match_condition(
+        key_path="Message.TableName",
+        operator="equals",
+        values=["Cattles", "Users", "Farms"],
+        case_insensitive=True,
+        message={"Message": {"TableName": "Users"}},
+    )
+    assert r.matched is True
+    assert r.resolved == "Users"
+    assert r.error is None
+
+
+def test_mc_or_list_no_match():
+    r = evaluate_match_condition(
+        key_path="Message.TableName",
+        operator="equals",
+        values=["Cattles", "Users"],
+        case_insensitive=True,
+        message={"Message": {"TableName": "Farms"}},
+    )
+    assert r.matched is False
+    assert r.error == "resolved value did not match"
+
+
+def test_mc_or_list_one_invalid_value_is_skipped():
+    """An empty string in the values list shouldn't poison the match.
+    The non-empty value should still win."""
+    r = evaluate_match_condition(
+        key_path="Message.TableName",
+        operator="equals",
+        values=["", "Cattles"],
+        case_insensitive=True,
+        message={"Message": {"TableName": "Cattles"}},
+    )
+    assert r.matched is True
+    assert r.resolved == "Cattles"
+
+
+def test_mc_non_scalar_result_does_not_match():
+    r = evaluate_match_condition(
+        key_path="Message.TableName",
+        operator="equals",
+        values=["a", "b"],
+        case_insensitive=True,
+        message={"Message": {"TableName": ["a", "b"]}},
+    )
+    assert r.matched is False
+    assert r.error == "non-scalar result"
+
+
+def test_mc_empty_values_list_never_matches():
+    r = evaluate_match_condition(
+        key_path="Message.TableName",
+        operator="equals",
+        values=[],
+        case_insensitive=True,
+        message={"Message": {"TableName": "Cattles"}},
+    )
+    assert r.matched is False
+    assert "no values" in (r.error or "")
+
+
+def test_mc_key_not_found_does_not_match():
+    r = evaluate_match_condition(
+        key_path="Message.TableName",
+        operator="equals",
+        values=["Cattles"],
+        case_insensitive=True,
+        message={"Message": {"Other": "x"}},
+    )
+    assert r.matched is False
+    assert r.error == "key not found"
+
+
+def test_mc_invalid_jmespath_marks_expression_invalid():
+    r = evaluate_match_condition(
+        key_path="Message.[bad",
+        operator="equals",
+        values=["x"],
+        case_insensitive=True,
+        message={"Message": {"a": 1}},
+    )
+    assert r.matched is False
+    assert r.expression_invalid is True
+    assert "invalid JMESPath" in (r.error or "")

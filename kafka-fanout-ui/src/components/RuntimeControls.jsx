@@ -1,19 +1,43 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useEnvs } from '../store/useEnvs.jsx';
 import { api } from '../lib/api.js';
 
 /**
  * Start / Stop buttons, status snapshot, log viewer. Polls status while
  * the env is starting or running; back-off when stopped.
+ *
+ * Polling: one effect per env, started on mount, torn down on unmount.
+ * The interval is computed from the *latest* status read from a ref
+ * (so updating `statuses` doesn't re-run the effect and create a
+ * feedback loop). State changes only re-schedule the *next* tick.
  */
 export default function RuntimeControls({ env }) {
   const { state, dispatch } = useEnvs();
   const status = state.statuses[env.id];
-  const [logsOpen, setLogsOpen] = useState(false);
+  // Mirror the latest status in a ref so the polling closure always
+  // sees the freshest state without re-creating the effect.
+  const statusRef = useRef(status);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  // Optimistic state overlay: when the user clicks Start/Stop, we
+  // locally mark the env as "starting" / "stopping" so the buttons
+  // disable immediately. The next poll replaces it with the real
+  // server-side state.
+  const [pendingCmd, setPendingCmd] = useState(null);
+  const pendingRef = useRef(null);
+  useEffect(() => {
+    pendingRef.current = pendingCmd;
+  }, [pendingCmd]);
+
   const [logs, setLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
 
   // Poll status: 2s while starting/running, 10s while stopped, 5s on error.
+  // The effect runs once per env; the interval is read from the ref
+  // each tick so a state change only changes the *next* interval, not
+  // the currently-pending one.
   useEffect(() => {
     let cancelled = false;
     let timer = null;
@@ -25,8 +49,15 @@ export default function RuntimeControls({ env }) {
       } catch {
         // ignore
       }
-      const next = status?.state;
-      const interval = next === 'running' || next === 'starting' ? 2000 : next === 'error' ? 5000 : 10000;
+      if (cancelled) return;
+      // Clear any optimistic pending state once the server reports a
+      // terminal state (running or stopped).
+      const live = statusRef.current?.state;
+      if (pendingRef.current && (live === 'running' || live === 'stopped' || live === 'error')) {
+        setPendingCmd(null);
+      }
+      const interval =
+        live === 'running' || live === 'starting' ? 2000 : live === 'error' ? 5000 : 10000;
       timer = setTimeout(tick, interval);
     }
     tick();
@@ -34,7 +65,10 @@ export default function RuntimeControls({ env }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [env.id, status?.state, dispatch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- status?.state intentionally NOT a dep;
+    // the tick reads `statusRef.current` each cycle so we don't re-create
+    // the polling chain on every state refresh.
+  }, [env.id, dispatch]);
 
   // Logs: refresh every 3s while open.
   useEffect(() => {
@@ -58,7 +92,14 @@ export default function RuntimeControls({ env }) {
     };
   }, [env.id, showLogs]);
 
-  const stateName = status?.state || 'stopped';
+  // Effective state: optimistic "starting" / "stopping" while the
+  // command is in flight, otherwise the server's last reported state.
+  const serverState = status?.state || 'stopped';
+  const stateName = pendingCmd
+    ? pendingCmd === 'start'
+      ? 'starting'
+      : 'stopping'
+    : serverState;
   const counters = status
     ? {
         consumed: status.messages_consumed,
@@ -66,6 +107,19 @@ export default function RuntimeControls({ env }) {
         failed: status.messages_failed,
       }
     : { consumed: 0, routed: 0, failed: 0 };
+
+  function runCommand(cmd) {
+    setPendingCmd(cmd);
+    // Clear the local log buffer on start so the "Show recent logs"
+    // panel doesn't display lines from the previous run while we wait
+    // for the next /logs poll. The backend also wipes its log table on
+    // start (manager._reset_status_and_logs) so the next fetch is
+    // empty until the new consumer emits its first line.
+    if (cmd === 'start') {
+      setLogs([]);
+    }
+    dispatch({ type: 'RUNTIME_CMD', id: env.id, cmd });
+  }
 
   return (
     <div className="card mt-4">
@@ -76,14 +130,14 @@ export default function RuntimeControls({ env }) {
       <div className="row">
         <button
           className="btn btn-primary"
-          onClick={() => dispatch({ type: 'RUNTIME_CMD', id: env.id, cmd: 'start' })}
+          onClick={() => runCommand('start')}
           disabled={stateName === 'running' || stateName === 'starting' || stateName === 'stopping'}
         >
           Start
         </button>
         <button
           className="btn"
-          onClick={() => dispatch({ type: 'RUNTIME_CMD', id: env.id, cmd: 'stop' })}
+          onClick={() => runCommand('stop')}
           disabled={stateName === 'stopped' || stateName === 'stopping'}
         >
           Stop

@@ -1,31 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useEnvs } from '../store/useEnvs.jsx';
-import { newEnv, newMapping, newDestination } from '../utils/factory.js';
+import { useEnvs, effectiveEnv } from '../store/useEnvs.jsx';
+import { newEnv } from '../utils/factory.js';
 import Modal from './Modal.jsx';
-
-function EnvRow({ env, active, onSelect, onMenu, onConfirm, menuOpen }) {
-  return (
-    <div
-      className={`env-row ${active ? 'active' : ''}`}
-      onClick={onSelect}
-    >
-      <div className="env-name">{env.name || <em className="muted">untitled</em>}</div>
-      <button
-        className="env-menu-btn"
-        onClick={(e) => {
-          e.stopPropagation();
-          onMenu(env.id);
-        }}
-        aria-label="env menu"
-      >
-        ⋯
-      </button>
-      {menuOpen ? (
-        <EnvMenu env={env} onClose={() => onMenu(null)} onConfirm={onConfirm} />
-      ) : null}
-    </div>
-  );
-}
+import { previewMatchCondition } from '../utils/expression.js';
 
 function EnvMenu({ env, onClose, onConfirm }) {
   const { dispatch } = useEnvs();
@@ -39,15 +16,7 @@ function EnvMenu({ env, onClose, onConfirm }) {
   }, [onClose]);
 
   // Menu items dispatch an "intent" to the parent (Sidebar) which
-  // opens the appropriate confirmation modal at the sidebar level —
-  // NOT inside this menu component. (Earlier the modals lived here
-  // and got unmounted when the menu closed, before they could show.)
-  //
-  // We stop click propagation on the menu container so the document
-  // mousedown handler can't accidentally close us (e.g. when the
-  // user clicks the ⋯ button to open the menu, the same click bubbles
-  // up and the document handler sees a target outside `ref.current`
-  // and would call onClose — instant close).
+  // opens the appropriate confirmation modal at the sidebar level.
   return (
     <div
       className="menu-container"
@@ -61,7 +30,6 @@ function EnvMenu({ env, onClose, onConfirm }) {
           onClick={() => {
             const name = window.prompt('New name', env.name);
             if (name && name !== env.name) {
-              // Build the full payload (preserving existing fields) and PUT.
               const payload = {
                 name,
                 description: env.description,
@@ -69,7 +37,7 @@ function EnvMenu({ env, onClose, onConfirm }) {
                 dlq_topic: env.dlq_topic,
                 dlq_brokers: env.dlq_brokers,
                 source: env.source,
-                mappings: env.mappings,
+                domain_groupings: env.domain_groupings,
               };
               dispatch({ type: 'UPDATE_ENV', id: env.id, payload });
             }
@@ -90,7 +58,6 @@ function EnvMenu({ env, onClose, onConfirm }) {
         <button
           className="menu-item"
           onClick={() => {
-            // Tell the parent to open the reset-confirm modal for this env.
             onConfirm({ kind: 'reset', envId: env.id });
             onClose();
           }}
@@ -101,7 +68,6 @@ function EnvMenu({ env, onClose, onConfirm }) {
         <button
           className="menu-item danger"
           onClick={() => {
-            // Tell the parent to open the delete-confirm modal for this env.
             onConfirm({ kind: 'delete', envId: env.id });
             onClose();
           }}
@@ -113,23 +79,112 @@ function EnvMenu({ env, onClose, onConfirm }) {
   );
 }
 
+function StatusPill({ stateName }) {
+  return <span className={`pill ${stateName || 'stopped'}`}>{stateName || 'stopped'}</span>;
+}
+
+/** Build a one-line summary for a DG node label. */
+function dgSummaryLabel(dg) {
+  const name = dg.name || '(unnamed)';
+  const mcs = dg.match_conditions || [];
+  if (mcs.length === 0) return `${name} · (no conditions)`;
+  if (mcs.length === 1) return `${name} · ${previewMatchCondition(mcs[0])}`;
+  return `${name} · ${mcs.length} match conditions`;
+}
+
+function EnvTreeNode({ env, expanded, onToggle, menuOpen, onMenu, onConfirm, statusName }) {
+  const { state, dispatch } = useEnvs();
+  const eff = effectiveEnv(state, env.id);
+  const dgs = eff.domain_groupings || [];
+  const isSelected =
+    env.id === state.selectedId && state.selectedDGIndex == null;
+
+  return (
+    <div className={`tree-node ${isSelected ? 'active' : ''}`}>
+      <div
+        className="tree-row env-row"
+        onClick={() => {
+          onToggle();
+          dispatch({ type: 'SELECT', id: env.id });
+        }}
+      >
+        <button
+          className={`tree-chevron ${expanded ? 'open' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          aria-label={expanded ? 'Collapse' : 'Expand'}
+        >
+          ▸
+        </button>
+        <div className="env-name">{env.name || <em className="muted">untitled</em>}</div>
+        <StatusPill stateName={statusName} />
+        <span className="muted mapping-count">({dgs.length})</span>
+        <button
+          className="env-menu-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMenu(env.id);
+          }}
+          aria-label="env menu"
+        >
+          ⋯
+        </button>
+        {menuOpen ? (
+          <EnvMenu env={env} onClose={() => onMenu(null)} onConfirm={onConfirm} />
+        ) : null}
+      </div>
+      {expanded ? (
+        <ul className="tree-children" role="group">
+          {dgs.length === 0 ? (
+            <li className="tree-child muted">no domain groupings</li>
+          ) : (
+            dgs.map((dg, idx) => {
+              const isActive =
+                env.id === state.selectedId && state.selectedDGIndex === idx;
+              return (
+                <li
+                  key={idx}
+                  className={`tree-child mapping-row ${isActive ? 'active' : ''}`}
+                  onClick={() =>
+                    dispatch({ type: 'SELECT_DG', envId: env.id, index: idx })
+                  }
+                  title={dgSummaryLabel(dg)}
+                >
+                  <span className="tree-child-bullet">↳</span>
+                  <span className="tree-child-label">
+                    #{idx + 1} · {dgSummaryLabel(dg)}
+                  </span>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Sidebar() {
   const { state, dispatch } = useEnvs();
   const [menuFor, setMenuFor] = useState(null);
-  // The pending confirm modal: { kind: 'delete' | 'reset', envId } or null.
-  // Lives at the Sidebar level so the modal survives the menu closing.
+  const [expanded, setExpanded] = useState(() => {
+    if (state.selectedId) return { [state.selectedId]: true };
+    return {};
+  });
   const [pending, setPending] = useState(null);
 
   const pendingEnv = pending ? state.envs.find((e) => e.id === pending.envId) : null;
 
+  function toggle(envId) {
+    setExpanded((prev) => ({ ...prev, [envId]: !prev[envId] }));
+  }
+
   function createNew() {
     const env = newEnv();
-    env.mappings = [newMapping()];
-    env.mappings[0].destinations = [newDestination()];
-    env.mappings[0].destinations[0].topic = 'example.destination';
-    env.mappings[0].destinations[0].headers = [];
-    env.name = `New environment ${state.envs.length + 1}`;
     dispatch({ type: 'CREATE_ENV', payload: env });
+    setExpanded((prev) => ({ ...prev, [env.id]: true }));
   }
 
   if (state.loading) {
@@ -154,23 +209,22 @@ export default function Sidebar() {
       {state.envs.length === 0 ? (
         <div className="sidebar-empty">No environments yet — create one to get started.</div>
       ) : (
-        <div className="sidebar-list">
+        <div className="sidebar-list tree">
           {state.envs.map((env) => (
-            <EnvRow
+            <EnvTreeNode
               key={env.id}
               env={env}
-              active={env.id === state.selectedId}
-              onSelect={() => dispatch({ type: 'SELECT', id: env.id })}
+              expanded={!!expanded[env.id]}
+              onToggle={() => toggle(env.id)}
+              statusName={state.statuses[env.id]?.state}
+              menuOpen={menuFor === env.id}
               onMenu={(id) => setMenuFor(menuFor === id ? null : id)}
               onConfirm={(intent) => setPending(intent)}
-              menuOpen={menuFor === env.id}
             />
           ))}
         </div>
       )}
 
-      {/* Confirmation modals — at Sidebar level so they don't get
-          unmounted when the menu closes. */}
       <Modal
         open={pending?.kind === 'delete'}
         title="Delete environment?"

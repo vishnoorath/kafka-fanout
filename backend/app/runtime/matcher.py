@@ -143,6 +143,68 @@ def evaluate_condition(
     )
 
 
+def evaluate_match_condition(
+    *,
+    key_path: str,
+    operator: str,
+    values: Sequence[str],
+    case_insensitive: bool,
+    message: dict,
+) -> MatchResult:
+    """Evaluate a single match condition (1 key_path, N values, OR-list) against a message.
+
+    Semantics:
+
+      1. Validate the JMESPath expression once (fast path; propagates parse errors).
+      2. If `resolved` is None → "key not found".
+      3. If `resolved` is a list/dict → "non-scalar result" (strict typing).
+      4. For each value in `values` (in order), call `evaluate_condition` with that
+         single value. Return on the first match.
+      5. If none match, return `matched=False, error="resolved value did not match"`.
+      6. If `values` is empty, return `matched=False, error="no values to match against"`.
+    """
+    if not values:
+        return MatchResult(
+            matched=False, resolved=None, error="no values to match against"
+        )
+    try:
+        resolved = jmespath.search(_preprocess(key_path), message)
+    except (jmespath.exceptions.ParseError, jmespath.exceptions.LexerError) as exc:
+        return MatchResult(
+            matched=False,
+            resolved=None,
+            error=f"invalid JMESPath: {exc}",
+            expression_invalid=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return MatchResult(
+            matched=False,
+            resolved=None,
+            error=f"JMESPath error: {exc}",
+            expression_invalid=True,
+        )
+    if resolved is None:
+        return MatchResult(matched=False, resolved=None, error="key not found")
+    if isinstance(resolved, (list, dict)):
+        return MatchResult(matched=False, resolved=resolved, error="non-scalar result")
+    # Strict-typing passed — `resolved` is a scalar. Try each value in order.
+    for v in values:
+        sub = evaluate_condition(
+            key_path=key_path,
+            operator=operator,
+            value=v,
+            case_insensitive=case_insensitive,
+            message=message,
+        )
+        if sub.matched:
+            return sub
+        if sub.expression_invalid:
+            return sub
+    return MatchResult(
+        matched=False, resolved=resolved, error="resolved value did not match"
+    )
+
+
 # ---------- header building ----------
 
 

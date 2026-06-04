@@ -24,8 +24,12 @@ const DRAFT_KEY = 'fanout:draft:v1';
 const initialState = {
   loading: true,
   loadError: null,
-  envs: [], // [{id, name, ..., source, mappings:[]}]
+  envs: [], // [{id, name, ..., source, domain_groupings:[]}]
   selectedId: null,
+  // When set, the right pane shows just this domain grouping (by index
+  // in the env's domain_groupings list). When null, the right pane
+  // shows the full env view (Source + Mappings + Test + Runtime).
+  selectedDGIndex: null,
   activeTab: 'source', // 'source' | 'mappings'
   drafts: {}, // { [envId]: { ...editedFields, _touched: {field: true} } }
   statuses: {}, // { [envId]: { state, last_error, ... } }
@@ -51,7 +55,16 @@ function reducer(state, action) {
     case 'LOAD_ERROR':
       return { ...state, loading: false, loadError: action.error };
     case 'SELECT':
-      return { ...state, selectedId: action.id };
+      // Selecting an env always clears the per-DG selection so
+      // the right pane shows the env-level view.
+      return { ...state, selectedId: action.id, selectedDGIndex: null };
+    case 'SELECT_DG':
+      // Selecting a domain grouping also selects its env (parent).
+      return {
+        ...state,
+        selectedId: action.envId,
+        selectedDGIndex: action.index,
+      };
     case 'SET_TAB':
       return { ...state, activeTab: action.tab };
     case 'ADD_ENV':
@@ -88,12 +101,15 @@ function reducer(state, action) {
       delete drafts[action.id];
       const statuses = { ...state.statuses };
       delete statuses[action.id];
+      const wasRemoved =
+        state.selectedId === action.id || state.selectedId == null;
       return {
         ...state,
         envs,
         drafts,
         statuses,
-        selectedId: state.selectedId === action.id ? envs[0]?.id ?? null : state.selectedId,
+        selectedId: wasRemoved ? envs[0]?.id ?? null : state.selectedId,
+        selectedDGIndex: wasRemoved ? null : state.selectedDGIndex,
       };
     }
     case 'SET_STATUS':
@@ -146,7 +162,27 @@ export function EnvsProvider({ children }) {
         let drafts = {};
         if (!draftHydrated.current) {
           try {
-            drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}') || {};
+            const raw = localStorage.getItem(DRAFT_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            // Reshape v2: drop any draft still using the old `mappings`
+            // top-level key. The shape is incompatible and a stale
+            // draft would block Save with cryptic field errors.
+            let dropped = false;
+            for (const [id, d] of Object.entries(parsed || {})) {
+              if (d && Object.prototype.hasOwnProperty.call(d, 'mappings')) {
+                delete parsed[id];
+                dropped = true;
+              }
+            }
+            if (dropped) {
+              try { localStorage.setItem(DRAFT_KEY, JSON.stringify(parsed || {})); } catch {}
+              baseDispatch({
+                type: 'PUSH_TOAST',
+                kind: 'info',
+                text: 'Saved drafts were reset (model reshape).',
+              });
+            }
+            drafts = parsed || {};
           } catch {
             drafts = {};
           }
@@ -154,12 +190,6 @@ export function EnvsProvider({ children }) {
         }
         const envs = await api.listEnvs();
         if (cancelled) return;
-        // Merge: envs from API + drafts from localStorage.
-        for (const env of envs) {
-          if (drafts[env.id]) {
-            // We re-attach the draft on the next PATCH; just leave it in localStorage.
-          }
-        }
         // Attach drafts to state directly via a custom dispatch path.
         // (We do it by setting state.drafts via a PATCH in a follow-up
         // effect so the reducer stays the single source of truth.)
@@ -320,8 +350,8 @@ function mergeDraft(env, draft) {
   if (draft.source) {
     out.source = { ...env.source, ...draft.source };
   }
-  if (draft.mappings) {
-    out.mappings = draft.mappings;
+  if (draft.domain_groupings) {
+    out.domain_groupings = draft.domain_groupings;
   }
   return out;
 }
@@ -350,14 +380,17 @@ export function buildEnvPayload(env, draft) {
     sasl_password: src.sasl_password === SECRET_PLACEHOLDER ? null : src.sasl_password || null,
     ssl_ca_location: src.ssl_ca_location || '',
   };
-  const mappings = (draft?.mappings || env.mappings || []).map((m) => ({
-    key_path: m.key_path,
-    operator: m.operator,
-    value: m.value,
-    case_insensitive: m.case_insensitive,
-    destinations: (m.destinations || []).map((d) => ({
-      use_source_broker: d.use_source_broker,
-      brokers: d.use_source_broker ? null : d.brokers || null,
+  const dgs = (draft?.domain_groupings || env.domain_groupings || []).map((dg) => ({
+    name: dg.name || '',
+    match_conditions: (dg.match_conditions || []).map((mc) => ({
+      key_path: mc.key_path,
+      operator: mc.operator,
+      case_insensitive: mc.case_insensitive !== false,
+      values: (mc.values || []).map((v) => ({ value: v.value || '' })),
+    })),
+    destinations: (dg.destinations || []).map((d) => ({
+      use_source_broker: d.use_source_broker !== false,
+      brokers: d.use_source_broker === false ? d.brokers || null : null,
       topic: d.topic || '',
       security_protocol: d.security_protocol || 'PLAINTEXT',
       sasl_mechanism: d.sasl_mechanism || null,
@@ -379,6 +412,6 @@ export function buildEnvPayload(env, draft) {
     dlq_topic: (draft?.dlq_topic ?? env.dlq_topic) || null,
     dlq_brokers: (draft?.dlq_brokers ?? env.dlq_brokers) || null,
     source: sourceOut,
-    mappings,
+    domain_groupings: dgs,
   };
 }

@@ -1,17 +1,21 @@
-"""Env write / read / duplicate helpers.
+"""Env write / read / duplicate helpers (reshape v2).
 
 These are plain functions that operate on ORM objects. They are kept
 separate from the FastAPI router so they can be unit-tested without an
 HTTP layer.
 
+Hierarchy now: `Env → DomainGrouping → (MatchCondition, Destination)`
+where each `MatchCondition` has an OR-list of `values`.
+
 Key behaviors:
 
 * `replace_env_in_session` — atomic full-replace of an env's source
-  config, mappings, destinations, and headers. Takes the session so it
-  can `await session.flush()` between the delete-orphan cascade and the
-  insert of new rows (without that, the `UNIQUE (env_id, position)`
-  constraint on `mappings` trips because the new row conflicts with
-  the old one at the same position).
+  config, domain groupings, match conditions, match condition values,
+  destinations, and headers. Takes the session so it can
+  `await session.flush()` between the delete-orphan cascade and the
+  insert of new rows (without that, the `UNIQUE (..., position)`
+  constraints trip because new rows conflict with old ones at the
+  same position).
 * `secret_writer` is a callable that converts a `SecretStr` to a plain
   string. The CRUD router uses the real `get_secret_value`; the import
   router passes a writer that always returns `None` (forces re-entry).
@@ -27,7 +31,15 @@ from typing import Any, Callable, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import schemas
-from app.models import Destination, Env, Header, Mapping, SourceConfig
+from app.models import (
+    Destination,
+    DomainGrouping,
+    Env,
+    Header,
+    MatchCondition,
+    MatchConditionValue,
+    SourceConfig,
+)
 
 
 SecretWriter = Callable[[Optional[schemas.SecretStr]], Optional[str]]
@@ -70,6 +82,23 @@ def _unwrap_destination(dest: Destination) -> Dict[str, Any]:
     }
 
 
+def _unwrap_match_condition(mc: MatchCondition) -> Dict[str, Any]:
+    return {
+        "key_path": mc.key_path,
+        "operator": mc.operator,
+        "case_insensitive": bool(mc.case_insensitive),
+        "values": [{"value": v.value} for v in mc.values],
+    }
+
+
+def _unwrap_domain_grouping(dg: DomainGrouping) -> Dict[str, Any]:
+    return {
+        "name": dg.name,
+        "match_conditions": [_unwrap_match_condition(mc) for mc in dg.match_conditions],
+        "destinations": [_unwrap_destination(d) for d in dg.destinations],
+    }
+
+
 def build_read_shape(env: Env) -> Dict[str, Any]:
     """Build the read-side dict for an env (does not redact secrets)."""
     return {
@@ -82,16 +111,7 @@ def build_read_shape(env: Env) -> Dict[str, Any]:
         "created_at": env.created_at,
         "updated_at": env.updated_at,
         "source": _unwrap_source(env.source) if env.source is not None else None,
-        "mappings": [
-            {
-                "key_path": m.key_path,
-                "operator": m.operator,
-                "value": m.value,
-                "case_insensitive": bool(m.case_insensitive),
-                "destinations": [_unwrap_destination(d) for d in m.destinations],
-            }
-            for m in env.mappings
-        ],
+        "domain_groupings": [_unwrap_domain_grouping(dg) for dg in env.domain_groupings],
     }
 
 
@@ -102,8 +122,8 @@ def serialize_secrets_stripped(env_dict: Dict[str, Any]) -> Dict[str, Any]:
         s = dict(out["source"])
         s["sasl_password"] = None
         out["source"] = s
-    for m in out.get("mappings", []) or []:
-        for d in m.get("destinations", []) or []:
+    for dg in out.get("domain_groupings", []) or []:
+        for d in dg.get("destinations", []) or []:
             d["sasl_password"] = None
     return out
 
@@ -120,10 +140,11 @@ async def replace_env_in_session(
     now: str,
     secret_writer: SecretWriter,
 ) -> None:
-    """Replace env children (source, mappings, destinations, headers).
+    """Replace env children (source, domain_groupings, match_conditions,
+    match_condition_values, destinations, headers).
 
     Flushes the deletes from the cascade before inserting the new rows
-    so the `UNIQUE (env_id, position)` constraints don't trip.
+    so the `UNIQUE (..., position)` constraints don't trip.
 
     Adds new ORM objects to the session but does not commit. The caller
     is responsible for `session.commit()`.
@@ -145,29 +166,44 @@ async def replace_env_in_session(
     )
     env.source = new_source  # type: ignore[assignment]
 
-    # --- mappings / destinations / headers ---
+    # --- domain_groupings / match_conditions / values / destinations / headers ---
     # The router always loads the env with `selectinload` before calling
-    # this function, so `env.mappings` is a populated InstrumentedList.
-    # `.clear()` triggers the cascade (`all, delete-orphan`) to mark
-    # children for deletion. We flush here so DELETEs go to the DB
-    # before INSERTs do.
-    env.mappings.clear()
+    # this function, so `env.domain_groupings` is a populated
+    # InstrumentedList. `.clear()` triggers the cascade
+    # (`all, delete-orphan`) to mark children for deletion. We flush
+    # here so DELETEs go to the DB before INSERTs do.
+    env.domain_groupings.clear()
     await session.flush()
 
-    for m_idx, m_payload in enumerate(payload.mappings, start=1):
-        new_mapping = Mapping(
+    for dg_idx, dg_payload in enumerate(payload.domain_groupings, start=1):
+        new_dg = DomainGrouping(
             id=str(uuid.uuid4()),
             env_id=new_env_id,
-            position=m_idx,
-            key_path=m_payload.key_path,
-            operator=m_payload.operator,
-            value=m_payload.value,
-            case_insensitive=1 if m_payload.case_insensitive else 0,
+            position=dg_idx,
+            name=dg_payload.name or "",
         )
-        for d_idx, d_payload in enumerate(m_payload.destinations, start=1):
+        for mc_idx, mc_payload in enumerate(dg_payload.match_conditions, start=1):
+            new_mc = MatchCondition(
+                id=str(uuid.uuid4()),
+                domain_grouping_id=new_dg.id,
+                position=mc_idx,
+                key_path=mc_payload.key_path,
+                operator=mc_payload.operator,
+                case_insensitive=1 if mc_payload.case_insensitive else 0,
+            )
+            for v_idx, v_payload in enumerate(mc_payload.values, start=1):
+                new_mc.values.append(
+                    MatchConditionValue(
+                        id=str(uuid.uuid4()),
+                        position=v_idx,
+                        value=v_payload.value,
+                    )
+                )
+            new_dg.match_conditions.append(new_mc)
+        for d_idx, d_payload in enumerate(dg_payload.destinations, start=1):
             new_dest = Destination(
                 id=str(uuid.uuid4()),
-                mapping_id=new_mapping.id,
+                domain_grouping_id=new_dg.id,
                 position=d_idx,
                 use_source_broker=1 if d_payload.use_source_broker else 0,
                 brokers=d_payload.brokers,
@@ -188,8 +224,8 @@ async def replace_env_in_session(
                         mode=h_payload.mode,
                     )
                 )
-            new_mapping.destinations.append(new_dest)
-        env.mappings.append(new_mapping)
+            new_dg.destinations.append(new_dest)
+        env.domain_groupings.append(new_dg)
 
 
 def duplicate_env_in_session(env: Env, *, now: str) -> Env:
@@ -221,20 +257,35 @@ def duplicate_env_in_session(env: Env, *, now: str) -> Env:
             sasl_password=None,  # not copied
             ssl_ca_location=env.source.ssl_ca_location,
         )
-    for m in env.mappings:
-        new_mapping = Mapping(
+    for dg in env.domain_groupings:
+        new_dg = DomainGrouping(
             id=str(uuid.uuid4()),
             env_id=new_id,
-            position=m.position,
-            key_path=m.key_path,
-            operator=m.operator,
-            value=m.value,
-            case_insensitive=m.case_insensitive,
+            position=dg.position,
+            name=dg.name,
         )
-        for d in m.destinations:
+        for mc in dg.match_conditions:
+            new_mc = MatchCondition(
+                id=str(uuid.uuid4()),
+                domain_grouping_id=new_dg.id,
+                position=mc.position,
+                key_path=mc.key_path,
+                operator=mc.operator,
+                case_insensitive=mc.case_insensitive,
+            )
+            for v in mc.values:
+                new_mc.values.append(
+                    MatchConditionValue(
+                        id=str(uuid.uuid4()),
+                        position=v.position,
+                        value=v.value,
+                    )
+                )
+            new_dg.match_conditions.append(new_mc)
+        for d in dg.destinations:
             new_dest = Destination(
                 id=str(uuid.uuid4()),
-                mapping_id=new_mapping.id,
+                domain_grouping_id=new_dg.id,
                 position=d.position,
                 use_source_broker=d.use_source_broker,
                 brokers=d.brokers,
@@ -255,6 +306,6 @@ def duplicate_env_in_session(env: Env, *, now: str) -> Env:
                         mode=h.mode,
                     )
                 )
-            new_mapping.destinations.append(new_dest)
-        new_env.mappings.append(new_mapping)
+            new_dg.destinations.append(new_dest)
+        new_env.domain_groupings.append(new_dg)
     return new_env

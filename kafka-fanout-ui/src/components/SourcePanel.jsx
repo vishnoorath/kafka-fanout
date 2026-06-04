@@ -52,7 +52,13 @@ export default function SourcePanel({ env }) {
   const isNew = Boolean(state.drafts[env.id]?._create);
 
   function patchSource(field, value) {
-    const next = { [field]: value };
+    // The `PATCH_DRAFT` reducer does a shallow merge of `action.patch`
+    // into the existing draft — sending `{ source: { field } }` would
+    // *replace* the whole `source` key in the draft, dropping every
+    // other field (brokers, topic, etc.) and showing them as empty in
+    // the form. Build a full source snapshot from the effective state
+    // and apply the one-field change so siblings are preserved.
+    const next = { ...src, [field]: value };
     dispatch({ type: 'PATCH_DRAFT', envId: env.id, patch: { source: next }, touched: { source: true } });
   }
 
