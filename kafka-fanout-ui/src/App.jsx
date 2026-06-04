@@ -15,6 +15,43 @@ import { EnvsProvider, useEnvs } from './store/useEnvs.jsx';
 function MainPane() {
   const { state, dispatch } = useEnvs();
   const env = state.envs.find((e) => e.id === state.selectedId);
+  const [runtimeHeight, setRuntimeHeight] = useState(() => {
+    try {
+      const stored = localStorage.getItem('fanout:runtime_h');
+      return stored ? parseInt(stored, 10) : 280;
+    } catch {
+      return 280;
+    }
+  });
+  const isDragging = useRef(false);
+
+  useEffect(() => {
+    function handleMouseMove(e) {
+      if (!isDragging.current) return;
+      const container = document.querySelector('.main-content');
+      if (!container) return;
+      const containerRect = container.getBoundingClientRect();
+      const newHeight = Math.max(120, Math.min(600, containerRect.bottom - e.clientY));
+      setRuntimeHeight(newHeight);
+      try {
+        localStorage.setItem('fanout:runtime_h', String(newHeight));
+      } catch {
+        // ignore
+      }
+    }
+    function handleMouseUp() {
+      isDragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
   if (!env) {
     return (
       <div className="main-content">
@@ -25,47 +62,50 @@ function MainPane() {
 
   const dgIndex = state.selectedDGIndex;
 
-  if (dgIndex != null) {
-    return (
-      <>
-        <EnvHeader env={env} />
-        <div className="main-content">
-          <div className="scrollable-panel">
-            <SingleDomainGroupingPanel env={env} dgIndex={dgIndex} />
-          </div>
-          <RuntimeControls env={env} />
-        </div>
-      </>
-    );
-  }
+  const content = dgIndex != null ? (
+    <SingleDomainGroupingPanel env={env} dgIndex={dgIndex} />
+  ) : state.activeTab === 'source' ? (
+    <SourcePanel env={env} />
+  ) : (
+    <DomainGroupingsPanel env={env} />
+  );
 
   return (
     <>
       <EnvHeader env={env} />
-      <div className="tabs">
-        <button
-          className={`tab ${state.activeTab === 'source' ? 'active' : ''}`}
-          onClick={() => dispatch({ type: 'SET_TAB', tab: 'source' })}
-        >
-          Source
-        </button>
-        <button
-          className={`tab ${state.activeTab === 'mappings' ? 'active' : ''}`}
-          onClick={() => dispatch({ type: 'SET_TAB', tab: 'mappings' })}
-        >
-          Domain Groupings
-          <span className="tab-count">({env.domain_groupings.length})</span>
-        </button>
-      </div>
+      {dgIndex == null && (
+        <div className="tabs">
+          <button
+            className={`tab ${state.activeTab === 'source' ? 'active' : ''}`}
+            onClick={() => dispatch({ type: 'SET_TAB', tab: 'source' })}
+          >
+            Source
+          </button>
+          <button
+            className={`tab ${state.activeTab === 'mappings' ? 'active' : ''}`}
+            onClick={() => dispatch({ type: 'SET_TAB', tab: 'mappings' })}
+          >
+            Domain Groupings
+            <span className="tab-count">({env.domain_groupings.length})</span>
+          </button>
+        </div>
+      )}
       <div className="main-content">
         <div className="scrollable-panel">
-          {state.activeTab === 'source' ? (
-            <SourcePanel env={env} />
-          ) : (
-            <DomainGroupingsPanel env={env} />
-          )}
+          {content}
         </div>
-        <RuntimeControls env={env} />
+        <div
+          className="panel-resizer-h"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            isDragging.current = true;
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+          }}
+        />
+        <div className="bottom-pane" style={{ height: `${runtimeHeight}px` }}>
+          <RuntimeControls env={env} />
+        </div>
       </div>
     </>
   );

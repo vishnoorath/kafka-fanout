@@ -39,7 +39,15 @@ function HeadersEditor({ destination, onChange, testMessageParsed }) {
   }
   return (
     <div className="mt-2">
-      <label className="hint">Headers</label>
+      <label className="hint" style={{ display: 'block', marginBottom: 'var(--space-2)' }}>Headers</label>
+      {headers.length > 0 && (
+        <div className="form-row mb-1" style={{ gap: 'var(--space-3)' }}>
+          <div style={{ flex: '0 0 30%', fontWeight: 500, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Name</div>
+          <div style={{ flex: 1, fontWeight: 500, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Value</div>
+          <div style={{ flex: '0 0 130px', fontWeight: 500, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Mode</div>
+          <div style={{ flex: '0 0 60px' }}></div>
+        </div>
+      )}
       {headers.length === 0 ? (
         <div className="muted mb-2">No headers.</div>
       ) : (
@@ -50,44 +58,47 @@ function HeadersEditor({ destination, onChange, testMessageParsed }) {
             preview = r.ok ? (r.value == null ? '(null)' : String(r.value)) : `(error: ${r.error})`;
           }
           return (
-            <div key={idx} className="form-row mb-2" style={{ alignItems: 'flex-end' }}>
-              <div className="form-group" style={{ flex: '0 0 30%' }}>
-                {idx === 0 ? <label>Name</label> : null}
-                <input
-                  className="input"
-                  value={h.name || ''}
-                  onChange={(e) => updateHeader(idx, 'name', e.target.value)}
-                />
+            <div key={idx} className="mb-3">
+              <div className="form-row" style={{ alignItems: 'center', gap: 'var(--space-3)' }}>
+                <div style={{ flex: '0 0 30%' }}>
+                  <input
+                    className="input"
+                    value={h.name || ''}
+                    onChange={(e) => updateHeader(idx, 'name', e.target.value)}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <input
+                    className="input"
+                    value={h.value || ''}
+                    onChange={(e) => updateHeader(idx, 'value', e.target.value)}
+                  />
+                </div>
+                <div style={{ flex: '0 0 130px' }}>
+                  <select
+                    className="select"
+                    value={h.mode || 'static'}
+                    onChange={(e) => updateHeader(idx, 'mode', e.target.value)}
+                  >
+                    <option value="static">static</option>
+                    <option value="from_message">from_message</option>
+                  </select>
+                </div>
+                <div style={{ flex: '0 0 60px', textAlign: 'right' }}>
+                  <button
+                    className="btn-link"
+                    onClick={() => removeHeader(idx)}
+                    title="Remove header"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
-              <div className="form-group" style={{ flex: 1 }}>
-                {idx === 0 ? <label>Value</label> : null}
-                <input
-                  className="input"
-                  value={h.value || ''}
-                  onChange={(e) => updateHeader(idx, 'value', e.target.value)}
-                />
-                {preview != null ? (
-                  <span className="preview-line">→ {preview}</span>
-                ) : null}
-              </div>
-              <div className="form-group" style={{ flex: '0 0 130px' }}>
-                {idx === 0 ? <label>Mode</label> : null}
-                <select
-                  className="select"
-                  value={h.mode || 'static'}
-                  onChange={(e) => updateHeader(idx, 'mode', e.target.value)}
-                >
-                  <option value="static">static</option>
-                  <option value="from_message">from_message</option>
-                </select>
-              </div>
-              <button
-                className="btn-link"
-                onClick={() => removeHeader(idx)}
-                title="Remove header"
-              >
-                Remove
-              </button>
+              {preview != null ? (
+                <div className="preview-line" style={{ marginLeft: 'calc(30% + var(--space-3))' }}>
+                  → {preview}
+                </div>
+              ) : null}
             </div>
           );
         })

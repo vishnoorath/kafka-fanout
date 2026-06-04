@@ -41,7 +41,7 @@ const initialState = {
   activeTab: 'source', // 'source' | 'mappings'
   drafts: {}, // { [envId]: { ...editedFields, _touched: {field: true} } }
   statuses: {}, // { [envId]: { state, last_error, ... } }
-  testMessage: '{\n  "Message": { "TableName": "Cattles" }\n}',
+  testMessage: '{\n  "TableName": "Cattles"\n}',
   toasts: [],
   dgNames: initialDGNames,
 };

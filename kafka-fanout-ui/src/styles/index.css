@@ -96,9 +96,35 @@ a:hover {
   padding: var(--space-5);
 }
 
-.main-content > .card {
-  margin: 0 var(--space-5) var(--space-5) var(--space-5);
+.panel-resizer-h {
+  height: 4px;
+  cursor: row-resize;
+  background: var(--border);
+  transition: background 0.1s;
   flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.panel-resizer-h:hover,
+.panel-resizer-h:active {
+  background: var(--accent);
+}
+
+.bottom-pane {
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: var(--space-4) var(--space-5);
+  min-height: 120px;
+}
+
+.bottom-pane > .card {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
 }
 
 /* ---------- sidebar ---------- */

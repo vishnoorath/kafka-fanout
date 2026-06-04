@@ -27,7 +27,7 @@ function preprocess(expression) {
  */
 export function safeSearch(expression, data) {
   try {
-    const value = jmespath.search(preprocess(expression), data);
+    const value = jmespath.search(data, preprocess(expression));
     return { ok: true, value };
   } catch (exc) {
     return { ok: false, error: String(exc && exc.message ? exc.message : exc) };
