@@ -53,22 +53,52 @@ a:hover {
 
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-columns: 240px 4px 1fr;
   height: 100%;
   min-height: 0;
+}
+
+.sidebar-resizer {
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.1s;
+  height: 100%;
+  position: relative;
+  z-index: 10;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer:active {
+  background: var(--accent);
 }
 
 .main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
 }
 
 .main-content {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scrollable-panel {
+  flex: 1 1 auto;
+  overflow-y: auto;
   padding: var(--space-5);
+}
+
+.main-content > .card {
+  margin: 0 var(--space-5) var(--space-5) var(--space-5);
+  flex-shrink: 0;
 }
 
 /* ---------- sidebar ---------- */
@@ -713,21 +743,39 @@ a:hover {
   border-radius: var(--radius-2);
   max-height: 240px;
   overflow: auto;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  padding: var(--space-2);
+  padding: 0;
 }
 
-.log-line {
-  padding: 2px 0;
+.logs-grid {
+  display: grid;
+  grid-template-columns: 160px 80px 1fr;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  width: 100%;
+}
+
+.log-header {
+  font-weight: 600;
+  background: var(--surface-2);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.log-cell {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px dashed var(--border);
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-.log-line.level-INFO  { color: var(--text); }
-.log-line.level-WARN  { color: var(--warn); }
-.log-line.level-ERROR { color: var(--err); }
-.log-line.level-DEBUG { color: var(--text-soft); }
+.log-cell.level-INFO  { color: var(--text); }
+.log-cell.level-WARN  { color: var(--warn); font-weight: 500; }
+.log-cell.level-ERROR { color: var(--err); font-weight: 600; }
+.log-cell.level-DEBUG { color: var(--text-soft); }
 
 /* ---------- toasts ---------- */
 

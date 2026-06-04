@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar.jsx';
 import EnvHeader from './components/EnvHeader.jsx';
 import SourcePanel from './components/SourcePanel.jsx';
@@ -30,7 +30,9 @@ function MainPane() {
       <>
         <EnvHeader env={env} />
         <div className="main-content">
-          <SingleDomainGroupingPanel env={env} dgIndex={dgIndex} />
+          <div className="scrollable-panel">
+            <SingleDomainGroupingPanel env={env} dgIndex={dgIndex} />
+          </div>
           <RuntimeControls env={env} />
         </div>
       </>
@@ -56,11 +58,13 @@ function MainPane() {
         </button>
       </div>
       <div className="main-content">
-        {state.activeTab === 'source' ? (
-          <SourcePanel env={env} />
-        ) : (
-          <DomainGroupingsPanel env={env} />
-        )}
+        <div className="scrollable-panel">
+          {state.activeTab === 'source' ? (
+            <SourcePanel env={env} />
+          ) : (
+            <DomainGroupingsPanel env={env} />
+          )}
+        </div>
         <RuntimeControls env={env} />
       </div>
     </>
@@ -68,10 +72,53 @@ function MainPane() {
 }
 
 export default function App() {
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const stored = localStorage.getItem('fanout:sidebar_w');
+      return stored ? parseInt(stored, 10) : 240;
+    } catch {
+      return 240;
+    }
+  });
+  const isDragging = useRef(false);
+
+  useEffect(() => {
+    function handleMouseMove(e) {
+      if (!isDragging.current) return;
+      const newWidth = Math.max(160, Math.min(600, e.clientX));
+      setSidebarWidth(newWidth);
+      try {
+        localStorage.setItem('fanout:sidebar_w', String(newWidth));
+      } catch {
+        // ignore
+      }
+    }
+    function handleMouseUp() {
+      isDragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
   return (
     <EnvsProvider>
-      <div className="app">
+      <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px 4px 1fr` }}>
         <Sidebar />
+        <div
+          className="sidebar-resizer"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            isDragging.current = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+          }}
+        />
         <div className="main">
           <MainPane />
         </div>

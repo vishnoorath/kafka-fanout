@@ -154,7 +154,7 @@ function EnvTreeNode({ env, expanded, onToggle, menuOpen, onMenu, onConfirm, sta
                 >
                   <span className="tree-child-bullet">↳</span>
                   <span className="tree-child-label">
-                    #{idx + 1} · {dgSummaryLabel(dg)}
+                    #{idx + 1} · {dg.name || '(unnamed)'}
                   </span>
                 </li>
               );

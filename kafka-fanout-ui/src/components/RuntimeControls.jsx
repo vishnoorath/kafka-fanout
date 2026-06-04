@@ -174,11 +174,18 @@ export default function RuntimeControls({ env }) {
             {logs.length === 0 ? (
               <div className="muted">No log lines yet.</div>
             ) : (
-              logs.map((l) => (
-                <div className={`log-line level-${l.level}`} key={l.id}>
-                  {l.ts} {l.level} :: {l.message}
-                </div>
-              ))
+              <div className="logs-grid">
+                <div className="log-header">Timestamp</div>
+                <div className="log-header">Level</div>
+                <div className="log-header">Message</div>
+                {logs.map((l) => (
+                  <React.Fragment key={l.id}>
+                    <div className="log-cell ts">{l.ts}</div>
+                    <div className={`log-cell level level-${l.level}`}>{l.level}</div>
+                    <div className="log-cell message">{l.message}</div>
+                  </React.Fragment>
+                ))}
+              </div>
             )}
           </div>
         ) : null}
