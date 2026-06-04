@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useEnvs, effectiveEnv, hasDirtyDraft, buildEnvPayload } from '../store/useEnvs.jsx';
 import {
-  DOMAIN_GROUPING_NAMES,
   newDomainGrouping,
   newDestination,
   newHeader,
@@ -11,6 +10,7 @@ import {
 } from '../utils/factory.js';
 import { previewMatchCondition } from '../utils/expression.js';
 import { safeSearch } from '../lib/jmespath-preview.js';
+import Modal from './Modal.jsx';
 
 function moveItem(arr, from, to) {
   const next = [...arr];
@@ -325,49 +325,83 @@ function MatchConditionEditor({ mc, onChange }) {
   );
 }
 
-// ---------- Domain grouping name selector ----------
-
 function DGNameSelector({ value, onChange }) {
-  const known = DOMAIN_GROUPING_NAMES.includes(value);
-  // The "Other…" option is selected when the current value isn't in
-  // the known list (and isn't empty).
-  const otherSelected = !known && (value || '').length > 0;
+  const { state, dispatch } = useEnvs();
+  const [showModal, setShowModal] = useState(false);
+  const [customName, setCustomName] = useState('');
+
+  function handleSelectChange(e) {
+    const v = e.target.value;
+    if (v === '__other__') {
+      setCustomName('');
+      setShowModal(true);
+    } else {
+      onChange(v);
+    }
+  }
+
+  function handleAddCustom() {
+    const trimmed = customName.trim();
+    if (trimmed) {
+      dispatch({ type: 'ADD_DG_NAME', name: trimmed });
+      onChange(trimmed);
+      setShowModal(false);
+    }
+  }
+
   return (
     <div className="form-row" style={{ alignItems: 'flex-end' }}>
       <div className="form-group" style={{ flex: '0 0 220px', marginBottom: 0 }}>
         <label>Domain Grouping</label>
         <select
           className="select"
-          value={otherSelected ? '__other__' : (value || '')}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === '__other__') {
-              onChange(''); // Switch to freeform; user types into the input.
-            } else {
-              onChange(v);
-            }
-          }}
+          value={state.dgNames.includes(value) ? value : (value ? '__custom_not_saved__' : '')}
+          onChange={handleSelectChange}
         >
           <option value="">— select —</option>
-          {DOMAIN_GROUPING_NAMES.map((n) => (
+          {state.dgNames.map((n) => (
             <option key={n} value={n}>
               {n}
             </option>
           ))}
+          {!state.dgNames.includes(value) && value ? (
+            <option value="__custom_not_saved__">{value} (custom)</option>
+          ) : null}
           <option value="__other__">Other…</option>
         </select>
       </div>
-      {otherSelected ? (
-        <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-          <label>Custom name</label>
+
+      <Modal
+        open={showModal}
+        title="Add Custom Domain Grouping"
+        onClose={() => setShowModal(false)}
+        footer={
+          <div className="btn-group">
+            <button className="btn" onClick={() => setShowModal(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleAddCustom}>
+              Add
+            </button>
+          </div>
+        }
+      >
+        <div className="form-group">
+          <label>Grouping Name</label>
           <input
             className="input"
-            value={value || ''}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="Custom domain grouping name"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleAddCustom();
+              }
+            }}
+            placeholder="e.g. Sales"
+            autoFocus
           />
         </div>
-      ) : null}
+      </Modal>
     </div>
   );
 }

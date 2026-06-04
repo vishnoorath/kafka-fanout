@@ -234,7 +234,7 @@ class ConsumerTask:
             if not matched:
                 continue
             for d in dg["destinations"]:
-                await self._send_to_destination(raw, d, parsed)
+                await self._send_to_destination(raw, d, parsed, key=msg.key)
                 self._counters.bump_routed(1)
         self._counters.bump_consumed()
 
@@ -243,6 +243,8 @@ class ConsumerTask:
         raw_value: bytes,
         dest: Dict[str, Any],
         parsed_message: dict,
+        *,
+        key: Optional[bytes] = None,
     ) -> None:
         env_payload = self._env_payload or {"source": {}}
         brokers = dest["brokers"] or env_payload["source"]["brokers"]
@@ -263,6 +265,7 @@ class ConsumerTask:
                 await producer.send_and_wait(
                     topic=dest["topic"],
                     value=raw_value,
+                    key=key,
                     headers=headers,
                 )
                 return

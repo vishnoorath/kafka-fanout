@@ -8,9 +8,17 @@ import React, {
 } from 'react';
 import { api } from '../lib/api.js';
 import { newId } from '../utils/id.js';
-import { SECRET_PLACEHOLDER } from '../utils/factory.js';
+import { SECRET_PLACEHOLDER, DOMAIN_GROUPING_NAMES } from '../utils/factory.js';
 
 const DRAFT_KEY = 'fanout:draft:v1';
+
+let initialDGNames = [];
+try {
+  const stored = localStorage.getItem('fanout:dg_names');
+  initialDGNames = stored ? JSON.parse(stored) : DOMAIN_GROUPING_NAMES;
+} catch {
+  initialDGNames = DOMAIN_GROUPING_NAMES;
+}
 
 /**
  * Reducer-based store for envs + transient UI state.
@@ -35,6 +43,7 @@ const initialState = {
   statuses: {}, // { [envId]: { state, last_error, ... } }
   testMessage: '{\n  "Message": { "TableName": "Cattles" }\n}',
   toasts: [],
+  dgNames: initialDGNames,
 };
 
 function reducer(state, action) {
@@ -126,6 +135,18 @@ function reducer(state, action) {
       };
     case 'DISMISS_TOAST':
       return { ...state, toasts: state.toasts.filter((t) => t.id !== action.id) };
+    case 'ADD_DG_NAME': {
+      const dgNames = [...state.dgNames];
+      if (action.name && !dgNames.includes(action.name)) {
+        dgNames.push(action.name);
+        try {
+          localStorage.setItem('fanout:dg_names', JSON.stringify(dgNames));
+        } catch {
+          // ignore
+        }
+      }
+      return { ...state, dgNames };
+    }
     default:
       return state;
   }
