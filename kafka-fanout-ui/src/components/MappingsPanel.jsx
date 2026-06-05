@@ -780,6 +780,11 @@ export default function DomainGroupingsPanel({ env }) {
 
   return (
     <div>
+      <div className="row-end mb-3">
+        <button className="btn" onClick={addDG}>
+          + Add domain grouping
+        </button>
+      </div>
       {dgs.length === 0 ? (
         <p className="muted">No domain groupings yet — add one to start routing.</p>
       ) : (
@@ -797,9 +802,6 @@ export default function DomainGroupingsPanel({ env }) {
         ))
       )}
       <div className="row-end mt-3 mb-4">
-        <button className="btn" onClick={addDG}>
-          + Add domain grouping
-        </button>
         <button
           className={`btn btn-primary ${saveStatus === 'success' ? 'btn-success' : saveStatus === 'error' ? 'btn-error' : ''}`}
           onClick={save}

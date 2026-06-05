@@ -3,8 +3,8 @@
   "envs": [
     {
       "id": "a10c1ae8-560f-4a0d-ae05-02dcc405280a",
-      "name": "UAT",
-      "description": "Configuration for UAT Kafka Fanout",
+      "name": "Prod",
+      "description": "Configuration for Prod Kafka Fanout",
       "enabled": false,
       "dlq_topic": null,
       "dlq_brokers": null,
