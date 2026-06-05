@@ -42,7 +42,7 @@ function evaluateMatchConditionClient(mc, parsedMessage) {
     let matched = false;
     if (mc.operator === 'equals') matched = a === b;
     else if (mc.operator === 'not_equals') matched = a !== b;
-    else if (mc.operator === 'contains') matched = a.includes(b);
+    else if (mc.operator === 'contains') matched = a.includes(b) || b.includes(a);
     if (matched) {
       return { matched: true, resolved: v, error: null, kind: 'matched', matchedValueIndex: i, matchedValue: values[i] };
     }

@@ -126,7 +126,7 @@ def evaluate_condition(
     elif operator == "not_equals":
         matched = resolved_str != target
     elif operator == "contains":
-        matched = target in resolved_str
+        matched = (target in resolved_str) or (resolved_str in target)
     else:
         # Defensive: a malformed mapping should not match.
         return MatchResult(

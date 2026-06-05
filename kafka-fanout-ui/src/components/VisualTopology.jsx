@@ -48,7 +48,7 @@ export default function VisualTopology({ env }) {
           const b = String(target).toLowerCase();
           if (op === 'equals') return vs === b;
           if (op === 'not_equals') return vs !== b;
-          if (op === 'contains') return vs.includes(b);
+          if (op === 'contains') return vs.includes(b) || b.includes(vs);
           return false;
         });
       });

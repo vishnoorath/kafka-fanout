@@ -1219,3 +1219,20 @@ a:hover {
   from { stroke-dashoffset: 10; }
   to { stroke-dashoffset: 0; }
 }
+
+.tab-count-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 6px;
+}
+.tab-count-pill.matched {
+  background: var(--ok);
+  color: #fff;
+}
+.tab-count-pill.unmatched {
+  background: var(--text-soft);
+  color: #fff;
+}

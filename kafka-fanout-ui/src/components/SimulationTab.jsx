@@ -38,7 +38,7 @@ function evaluateMatchConditionClient(mc, parsedMessage) {
     let matched = false;
     if (mc.operator === 'equals') matched = a === b;
     else if (mc.operator === 'not_equals') matched = a !== b;
-    else if (mc.operator === 'contains') matched = a.includes(b);
+    else if (mc.operator === 'contains') matched = a.includes(b) || b.includes(a);
     if (matched) {
       return { matched: true, resolved: v, error: null, kind: 'matched', matchedValueIndex: i, matchedValue: values[i] };
     }
@@ -58,6 +58,7 @@ export default function SimulationTab({ env }) {
   const dgs = eff.domain_groupings || [];
   
   const [formatError, setFormatError] = useState(null);
+  const [activeOutcomeTab, setActiveOutcomeTab] = useState('matched'); // 'matched' | 'unmatched'
 
   const parsed = useMemo(() => {
     try {
@@ -69,6 +70,24 @@ export default function SimulationTab({ env }) {
       return null;
     }
   }, [state.testMessage]);
+
+  const evaluatedGroupings = useMemo(() => {
+    if (!parsed) return [];
+    return dgs.map((dg, dgIdx) => {
+      const mcs = dg.match_conditions || [];
+      const mcResults = mcs.map((mc) => evaluateMatchConditionClient(mc, parsed));
+      const anyMatched = mcResults.some((r) => r.matched);
+      return {
+        dg,
+        dgIdx,
+        mcResults,
+        anyMatched,
+      };
+    });
+  }, [dgs, parsed]);
+
+  const matchedGroupings = evaluatedGroupings.filter((g) => g.anyMatched);
+  const unmatchedGroupings = evaluatedGroupings.filter((g) => !g.anyMatched);
 
   function handleFormat() {
     try {
@@ -124,85 +143,107 @@ export default function SimulationTab({ env }) {
               No Domain Groupings configured for this environment.
             </div>
           ) : (
-            <div className="sim-groupings-list">
-              {dgs.map((dg, dgIdx) => {
-                const mcs = dg.match_conditions || [];
-                const mcResults = mcs.map((mc) => evaluateMatchConditionClient(mc, parsed));
-                const anyMatched = mcResults.some((r) => r.matched);
-                
-                return (
-                  <div
-                    key={dgIdx}
-                    className={`sim-group-card ${anyMatched ? 'matched-glow' : ''}`}
-                  >
-                    <div className="sim-group-header">
-                      <span className={`sim-badge ${anyMatched ? 'matched' : 'unmatched'}`}>
-                        {anyMatched ? 'MATCHED ✓' : 'NO MATCH'}
-                      </span>
-                      <span className="sim-group-name">
-                        #{dgIdx + 1} — {dg.name || '(unnamed)'}
-                      </span>
-                    </div>
+            <>
+              <div className="tabs sub-tabs mb-3">
+                <button
+                  className={`tab ${activeOutcomeTab === 'matched' ? 'active' : ''}`}
+                  onClick={() => setActiveOutcomeTab('matched')}
+                >
+                  Matched <span className="tab-count-pill matched">{matchedGroupings.length}</span>
+                </button>
+                <button
+                  className={`tab ${activeOutcomeTab === 'unmatched' ? 'active' : ''}`}
+                  onClick={() => setActiveOutcomeTab('unmatched')}
+                >
+                  No Match <span className="tab-count-pill unmatched">{unmatchedGroupings.length}</span>
+                </button>
+              </div>
 
-                    <div className="sim-conditions-section">
-                      <div className="sim-section-label">Condition Rules</div>
-                      {mcResults.map((r, mcIdx) => (
-                        <div key={mcIdx} className="sim-condition-row">
-                          <span className={`sim-dot ${r.kind}`} />
-                          <span className="sim-path">{mcs[mcIdx].key_path}</span>
-                          <span className="sim-op">{mcs[mcIdx].operator}</span>
-                          <span className="sim-val">
-                            [{mcs[mcIdx].values?.map(v => v.value).join(', ')}]
-                          </span>
-                          <span className="sim-arrow">→</span>
-                          <span className="sim-resolved">
-                            resolved: <code>{stringify(r.resolved)}</code>
-                          </span>
-                          {r.error && <span className="sim-error-hint">({r.error})</span>}
-                        </div>
-                      ))}
-                    </div>
-
-                    {anyMatched && (
-                      <div className="sim-destinations-section">
-                        <div className="sim-section-label">Target Routing Destinations</div>
-                        {(dg.destinations || []).length === 0 ? (
-                          <div className="muted pl-3">No destination topics specified.</div>
-                        ) : (
-                          (dg.destinations || []).map((d, didx) => {
-                            const headers = (d.headers || []).map((h) => {
-                              if (h.mode === 'from_message') {
-                                const res = safeSearch(h.value, parsed);
-                                return { name: h.name, value: res.ok ? stringify(res.value) : `(error: ${res.error})` };
-                              }
-                              return { name: h.name, value: h.value };
-                            });
-
-                            return (
-                              <div key={didx} className="sim-destination-item">
-                                <div className="sim-dest-topic">
-                                  Topic: <strong>{d.topic}</strong>
-                                </div>
-                                {headers.length > 0 && (
-                                  <div className="sim-dest-headers">
-                                    {headers.map((h, hidx) => (
-                                      <div key={hidx} className="sim-header-row">
-                                        <span className="sim-h-name">{h.name}:</span>
-                                        <span className="sim-h-val">{h.value}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    )}
+              <div className="sim-groupings-list">
+                {(activeOutcomeTab === 'matched' ? matchedGroupings : unmatchedGroupings).length === 0 ? (
+                  <div className="muted flex-center" style={{ height: '150px' }}>
+                    No {activeOutcomeTab === 'matched' ? 'matching' : 'unmatched'} domain groupings.
                   </div>
-                );
-              })}
-            </div>
+                ) : (
+                  (activeOutcomeTab === 'matched' ? matchedGroupings : unmatchedGroupings).map(
+                    ({ dg, dgIdx, mcResults, anyMatched }) => {
+                      const mcs = dg.match_conditions || [];
+                      return (
+                        <div
+                          key={dgIdx}
+                          className={`sim-group-card ${anyMatched ? 'matched-glow' : ''}`}
+                        >
+                          <div className="sim-group-header">
+                            <span className={`sim-badge ${anyMatched ? 'matched' : 'unmatched'}`}>
+                              {anyMatched ? 'MATCHED ✓' : 'NO MATCH'}
+                            </span>
+                            <span className="sim-group-name">
+                              #{dgIdx + 1} — {dg.name || '(unnamed)'}
+                            </span>
+                          </div>
+
+                          <div className="sim-conditions-section">
+                            <div className="sim-section-label">Condition Rules</div>
+                            {mcResults.map((r, mcIdx) => (
+                              <div key={mcIdx} className="sim-condition-row">
+                                <span className={`sim-dot ${r.kind}`} />
+                                <span className="sim-path">{mcs[mcIdx].key_path}</span>
+                                <span className="sim-op">{mcs[mcIdx].operator}</span>
+                                <span className="sim-val">
+                                  [{mcs[mcIdx].values?.map((v) => v.value).join(', ')}]
+                                </span>
+                                <span className="sim-arrow">→</span>
+                                <span className="sim-resolved">
+                                  resolved: <code>{stringify(r.resolved)}</code>
+                                </span>
+                                {r.error && <span className="sim-error-hint">({r.error})</span>}
+                              </div>
+                            ))}
+                          </div>
+
+                          {anyMatched && (
+                            <div className="sim-destinations-section">
+                              <div className="sim-section-label">Target Routing Destinations</div>
+                              {(dg.destinations || []).length === 0 ? (
+                                <div className="muted pl-3">No destination topics specified.</div>
+                              ) : (
+                                (dg.destinations || []).map((d, didx) => {
+                                  const headers = (d.headers || []).map((h) => {
+                                    if (h.mode === 'from_message') {
+                                      const res = safeSearch(h.value, parsed);
+                                      return { name: h.name, value: res.ok ? stringify(res.value) : `(error: ${res.error})` };
+                                    }
+                                    return { name: h.name, value: h.value };
+                                  });
+
+                                  return (
+                                    <div key={didx} className="sim-destination-item">
+                                      <div className="sim-dest-topic">
+                                        Topic: <strong>{d.topic}</strong>
+                                      </div>
+                                      {headers.length > 0 && (
+                                        <div className="sim-dest-headers">
+                                          {headers.map((h, hidx) => (
+                                            <div key={hidx} className="sim-header-row">
+                                              <span className="sim-h-name">{h.name}:</span>
+                                              <span className="sim-h-val">{h.value}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                  )
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
