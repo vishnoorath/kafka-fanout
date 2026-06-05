@@ -195,6 +195,7 @@ class RuntimeStatusOut(BaseModel):
     consumed_rate: float = 0.0
     routed_rate: float = 0.0
     failed_rate: float = 0.0
+    messages_unmatched: int = 0
 
 
 class RuntimeLogOut(BaseModel):

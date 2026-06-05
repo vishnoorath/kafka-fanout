@@ -60,6 +60,7 @@ class _Counters:
         self.consumed: int = 0
         self.routed: int = 0
         self.failed: int = 0
+        self.unmatched: int = 0
         self.last_message_at: Optional[str] = None
         self._dirty: bool = True
         self._last_flush: float = 0.0
@@ -118,6 +119,10 @@ class _Counters:
         self.failed += n
         self._add_event(self._failed_window, n)
         self.update_rates()
+        self._dirty = True
+
+    def bump_unmatched(self, n: int = 1) -> None:
+        self.unmatched += n
         self._dirty = True
 
 
@@ -296,6 +301,7 @@ class ConsumerTask:
         self._counters.bump_consumed()
 
         if not any_dg_matched:
+            self._counters.bump_unmatched()
             msg_str = json.dumps(parsed)
             log.debug("env %s: unmatched message: %s", self.env_id, msg_str)
             if self._manager is not None:
@@ -441,6 +447,7 @@ class ConsumerTask:
                     messages_consumed=self._counters.consumed,
                     messages_routed=self._counters.routed,
                     messages_failed=self._counters.failed,
+                    messages_unmatched=self._counters.unmatched,
                     last_message_at=self._counters.last_message_at,
                     consumed_rate=self._counters.consumed_rate,
                     routed_rate=self._counters.routed_rate,
@@ -451,6 +458,7 @@ class ConsumerTask:
                 row.messages_consumed = self._counters.consumed
                 row.messages_routed = self._counters.routed
                 row.messages_failed = self._counters.failed
+                row.messages_unmatched = self._counters.unmatched
                 row.last_message_at = self._counters.last_message_at
                 row.consumed_rate = self._counters.consumed_rate
                 row.routed_rate = self._counters.routed_rate

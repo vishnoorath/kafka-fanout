@@ -289,6 +289,7 @@ class RuntimeStatus(Base):
     consumed_rate: Mapped[float] = mapped_column(default=0.0)
     routed_rate: Mapped[float] = mapped_column(default=0.0)
     failed_rate: Mapped[float] = mapped_column(default=0.0)
+    messages_unmatched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     env: Mapped[Env] = relationship(back_populates="status")
 

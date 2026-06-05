@@ -182,6 +182,7 @@ class RuntimeManager:
                 row.messages_consumed = 0
                 row.messages_routed = 0
                 row.messages_failed = 0
+                row.messages_unmatched = 0
                 row.last_message_at = None
                 row.last_error = None
             # Wipe logs so the "recent logs" panel doesn't show lines

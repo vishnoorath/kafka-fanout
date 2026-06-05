@@ -49,6 +49,13 @@ export default function MetricsDashboard({ status }) {
       color: 'var(--err)',
       bg: 'rgba(239, 68, 68, 0.08)',
     },
+    {
+      label: 'Unmatched',
+      value: status?.messages_unmatched ?? 0,
+      rate: null,
+      color: 'var(--warn)',
+      bg: 'rgba(234, 179, 8, 0.08)',
+    },
   ];
 
   // SVG Chart Config
@@ -91,9 +98,15 @@ export default function MetricsDashboard({ status }) {
             <div className="metric-value" style={{ color: s.color }}>
               {s.value.toLocaleString()}
             </div>
-            <div className="metric-rate">
-              <span className="rate-num">{s.rate.toFixed(1)}</span> msg/sec
-            </div>
+            {s.rate !== null ? (
+              <div className="metric-rate">
+                <span className="rate-num">{s.rate.toFixed(1)}</span> msg/sec
+              </div>
+            ) : (
+              <div className="metric-rate" style={{ opacity: 0.6 }}>
+                unmatched routes
+              </div>
+            )}
           </div>
         ))}
       </div>

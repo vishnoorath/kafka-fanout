@@ -48,6 +48,10 @@ async def init_db() -> None:
                 await conn.execute(text(f"ALTER TABLE runtime_status ADD COLUMN {col} REAL DEFAULT 0.0"))
             except Exception:
                 pass  # Ignore if column already exists
+        try:
+            await conn.execute(text("ALTER TABLE runtime_status ADD COLUMN messages_unmatched INTEGER DEFAULT 0"))
+        except Exception:
+            pass
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
