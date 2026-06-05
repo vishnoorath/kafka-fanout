@@ -28,11 +28,15 @@ def _configure_logging() -> None:
     )
 
 
+import asyncio
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _configure_logging()
     await init_db()
     app.state.runtime_manager = RuntimeManager()
+    # Trigger auto-resume in the background so startup isn't blocked by Kafka broker connectivity
+    asyncio.create_task(app.state.runtime_manager.auto_resume())
     try:
         yield
     finally:

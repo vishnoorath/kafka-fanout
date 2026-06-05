@@ -6,6 +6,8 @@ import DomainGroupingsPanel, { SingleDomainGroupingPanel } from './components/Ma
 import RuntimeControls from './components/RuntimeControls.jsx';
 import Toasts from './components/Toasts.jsx';
 import { EnvsProvider, useEnvs } from './store/useEnvs.jsx';
+import SimulationTab from './components/SimulationTab.jsx';
+import VisualTopology from './components/VisualTopology.jsx';
 
 /**
  * Renders either the env-level view (Source + Mappings + Runtime)
@@ -66,6 +68,10 @@ function MainPane() {
     <SingleDomainGroupingPanel env={env} dgIndex={dgIndex} />
   ) : state.activeTab === 'source' ? (
     <SourcePanel env={env} />
+  ) : state.activeTab === 'simulation' ? (
+    <SimulationTab env={env} />
+  ) : state.activeTab === 'topology' ? (
+    <VisualTopology env={env} />
   ) : (
     <DomainGroupingsPanel env={env} />
   );
@@ -87,6 +93,18 @@ function MainPane() {
           >
             Domain Groupings
             <span className="tab-count">({env.domain_groupings.length})</span>
+          </button>
+          <button
+            className={`tab ${state.activeTab === 'simulation' ? 'active' : ''}`}
+            onClick={() => dispatch({ type: 'SET_TAB', tab: 'simulation' })}
+          >
+            Simulation Sandbox
+          </button>
+          <button
+            className={`tab ${state.activeTab === 'topology' ? 'active' : ''}`}
+            onClick={() => dispatch({ type: 'SET_TAB', tab: 'topology' })}
+          >
+            Visual Topology
           </button>
         </div>
       )}

@@ -4,7 +4,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -42,6 +42,12 @@ async def init_db() -> None:
     """Create all tables. Called on FastAPI startup."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Self-healing migrations for SQLite columns added in newer versions
+        for col in ["consumed_rate", "routed_rate", "failed_rate"]:
+            try:
+                await conn.execute(text(f"ALTER TABLE runtime_status ADD COLUMN {col} REAL DEFAULT 0.0"))
+            except Exception:
+                pass  # Ignore if column already exists
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

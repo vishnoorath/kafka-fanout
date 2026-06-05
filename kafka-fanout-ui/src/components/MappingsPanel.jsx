@@ -244,9 +244,34 @@ function DestinationEditor({ destination, onChange, onRemove, testMessageParsed 
   );
 }
 
+function getJsonPaths(obj, prefix = '#', paths = []) {
+  if (obj === null || typeof obj !== 'object') {
+    return paths;
+  }
+  if (Array.isArray(obj)) {
+    if (obj.length > 0 && typeof obj[0] === 'object') {
+      getJsonPaths(obj[0], `${prefix}[0]`, paths);
+    }
+    return paths;
+  }
+  for (const key of Object.keys(obj)) {
+    const cleanKey = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : `"${key}"`;
+    const currentPath = prefix === '#' ? `#${cleanKey}` : `${prefix}.${cleanKey}`;
+    paths.push(currentPath);
+    if (typeof obj[key] === 'object' && obj[key] !== null) {
+      getJsonPaths(obj[key], currentPath, paths);
+    }
+  }
+  return paths;
+}
+
 // ---------- Match condition editor (with values list) ----------
 
-function MatchConditionEditor({ mc, onChange }) {
+function MatchConditionEditor({ mc, onChange, testMessageParsed }) {
+  const jsonPaths = React.useMemo(() => {
+    return getJsonPaths(testMessageParsed);
+  }, [testMessageParsed]);
+
   function patch(field, value) {
     onChange({ ...mc, [field]: value });
   }
@@ -260,19 +285,65 @@ function MatchConditionEditor({ mc, onChange }) {
   function removeValue(idx) {
     onChange({ ...mc, values: (mc.values || []).filter((_, i) => i !== idx) });
   }
+
+  // Determine if the current key_path is in our auto-extracted jsonPaths list.
+  // If not, and it's not empty, it counts as a custom path.
+  const isCustomPath = mc.key_path && !jsonPaths.includes(mc.key_path);
+  const [selectMode, setSelectMode] = useState(isCustomPath ? 'custom' : 'select');
+
+  function handlePathSelectChange(e) {
+    const val = e.target.value;
+    if (val === '__custom__') {
+      setSelectMode('custom');
+    } else {
+      setSelectMode('select');
+      patch('key_path', val);
+    }
+  }
+
   const preview = previewMatchCondition(mc);
   return (
     <div className="card">
       <div className="form-group">
         <label>Key path (JMESPath)</label>
-        <input
-          className="input"
-          value={mc.key_path || ''}
-          onChange={(e) => patch('key_path', e.target.value)}
-          placeholder="Message.TableName"
-        />
+        {selectMode === 'select' && jsonPaths.length > 0 ? (
+          <div className="form-row" style={{ gap: 'var(--space-2)' }}>
+            <select
+              className="select"
+              style={{ flex: 1 }}
+              value={jsonPaths.includes(mc.key_path) ? mc.key_path : ''}
+              onChange={handlePathSelectChange}
+            >
+              <option value="">— Select a field from message —</option>
+              {jsonPaths.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+              <option value="__custom__">Custom JMESPath expression...</option>
+            </select>
+            <button className="btn" type="button" onClick={() => setSelectMode('custom')}>
+              Custom
+            </button>
+          </div>
+        ) : (
+          <div className="form-row" style={{ gap: 'var(--space-2)' }}>
+            <input
+              className="input"
+              style={{ flex: 1 }}
+              value={mc.key_path || ''}
+              onChange={(e) => patch('key_path', e.target.value)}
+              placeholder="Message.TableName"
+            />
+            {jsonPaths.length > 0 && (
+              <button className="btn" type="button" onClick={() => setSelectMode('select')}>
+                Select field
+              </button>
+            )}
+          </div>
+        )}
         <span className="hint">
-          Use JMESPath syntax, e.g. <code>Message.TableName</code> or <code>items[0].id</code>.
+          Use JMESPath syntax, e.g. <code>#Message.TableName</code> or <code>#items[0].id</code>.
         </span>
       </div>
       <div className="form-row">
@@ -520,6 +591,7 @@ function DomainGroupingCard({
                   <MatchConditionEditor
                     mc={mc}
                     onChange={(v) => patchMC(mcIdx, v)}
+                    testMessageParsed={testMessageParsed}
                   />
                   {(dg.match_conditions || []).length > 1 ? (
                     <div className="row-end">

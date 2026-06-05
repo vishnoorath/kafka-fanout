@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useEnvs } from '../store/useEnvs.jsx';
 import { api } from '../lib/api.js';
+import MetricsDashboard from './MetricsDashboard.jsx';
 
 /**
  * Start / Stop buttons, status snapshot, log viewer. Polls status while
@@ -32,7 +33,8 @@ export default function RuntimeControls({ env }) {
   }, [pendingCmd]);
 
   const [logs, setLogs] = useState([]);
-  const [showLogs, setShowLogs] = useState(false);
+  const [showLogs, setShowLogs] = useState(true);
+  const [activeSubTab, setActiveSubTab] = useState('metrics');
 
   // Poll status: 2s while starting/running, 10s while stopped, 5s on error.
   // The effect runs once per env; the interval is read from the ref
@@ -166,10 +168,27 @@ export default function RuntimeControls({ env }) {
         </div>
       ) : null}
       <div className="mt-3">
-        <button className="btn-link" onClick={() => setShowLogs(!showLogs)}>
-          {showLogs ? 'Hide' : 'Show'} recent logs
-        </button>
-        {showLogs ? (
+        <div className="tabs sub-tabs mb-3">
+          <button
+            className={`tab ${activeSubTab === 'metrics' ? 'active' : ''}`}
+            onClick={() => setActiveSubTab('metrics')}
+          >
+            Metrics Dashboard
+          </button>
+          <button
+            className={`tab ${activeSubTab === 'logs' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveSubTab('logs');
+              setShowLogs(true);
+            }}
+          >
+            Recent Logs
+          </button>
+        </div>
+
+        {activeSubTab === 'metrics' ? (
+          <MetricsDashboard status={status} />
+        ) : showLogs ? (
           <div className="logs-panel mt-2">
             {logs.length === 0 ? (
               <div className="muted">No log lines yet.</div>

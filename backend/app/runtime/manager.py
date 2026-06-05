@@ -55,6 +55,17 @@ class RuntimeManager:
         )
         await self.pool.aclose_all()
 
+    async def auto_resume(self) -> None:
+        log.info("checking for environments to auto-resume...")
+        async with session_scope() as session:
+            stmt = select(RuntimeStatus.env_id).where(RuntimeStatus.state.in_(["running", "starting"]))
+            result = await session.execute(stmt)
+            env_ids = list(result.scalars().all())
+
+        if env_ids:
+            log.info("auto-resuming %d environments: %s", len(env_ids), env_ids)
+            await asyncio.gather(*(self.start(env_id) for env_id in env_ids), return_exceptions=True)
+
     # ---------- start / stop ----------
 
     async def start(self, env_id: str) -> None:

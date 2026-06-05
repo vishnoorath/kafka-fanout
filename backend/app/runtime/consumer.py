@@ -25,8 +25,10 @@ Status updates (state, counters, last_message_at) are batched to
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -62,17 +64,60 @@ class _Counters:
         self._dirty: bool = True
         self._last_flush: float = 0.0
 
+        self._consumed_window: deque = deque()
+        self._routed_window: deque = deque()
+        self._failed_window: deque = deque()
+        self._start_time: float = time.time()
+
+        self.consumed_rate: float = 0.0
+        self.routed_rate: float = 0.0
+        self.failed_rate: float = 0.0
+
+    def _add_event(self, window: deque, count: int = 1) -> None:
+        now_sec = int(time.time())
+        cutoff = now_sec - 10
+        while window and window[0][0] < cutoff:
+            window.popleft()
+
+        if window and window[-1][0] == now_sec:
+            window[-1] = (now_sec, window[-1][1] + count)
+        else:
+            window.append((now_sec, count))
+
+    def _get_rate(self, window: deque) -> float:
+        now_sec = int(time.time())
+        cutoff = now_sec - 10
+        while window and window[0][0] < cutoff:
+            window.popleft()
+
+        total = sum(item[1] for item in window)
+        elapsed = max(1.0, time.time() - self._start_time)
+        denom = min(10.0, elapsed)
+        return round(total / denom, 2)
+
+    def update_rates(self) -> None:
+        self.consumed_rate = self._get_rate(self._consumed_window)
+        self.routed_rate = self._get_rate(self._routed_window)
+        self.failed_rate = self._get_rate(self._failed_window)
+        self._dirty = True
+
     def bump_consumed(self, n: int = 1) -> None:
         self.consumed += n
         self.last_message_at = datetime.now(timezone.utc).isoformat()
+        self._add_event(self._consumed_window, n)
+        self.update_rates()
         self._dirty = True
 
     def bump_routed(self, n: int) -> None:
         self.routed += n
+        self._add_event(self._routed_window, n)
+        self.update_rates()
         self._dirty = True
 
     def bump_failed(self, n: int = 1) -> None:
         self.failed += n
+        self._add_event(self._failed_window, n)
+        self.update_rates()
         self._dirty = True
 
 
@@ -222,6 +267,7 @@ class ConsumerTask:
         #    condition (OR-list). If any MC matches, fan out to ALL
         #    destinations of that DG.
         any_dg_matched = False
+        routing_tasks = []
         for dg in env_payload["domain_groupings"]:
             matched = False
             for mc in dg["match_conditions"]:
@@ -239,13 +285,19 @@ class ConsumerTask:
                 continue
             any_dg_matched = True
             for d in dg["destinations"]:
-                await self._send_to_destination(raw, d, parsed, key=msg.key)
+                routing_tasks.append(
+                    self._send_to_destination(raw, d, parsed, msg, env_payload, key=msg.key)
+                )
                 self._counters.bump_routed(1)
+
+        if routing_tasks:
+            await asyncio.gather(*routing_tasks)
+
         self._counters.bump_consumed()
 
         if not any_dg_matched:
             msg_str = json.dumps(parsed)
-            log.warning("env %s: unmatched message: %s", self.env_id, msg_str)
+            log.debug("env %s: unmatched message: %s", self.env_id, msg_str)
             if self._manager is not None:
                 await self._manager.append_log(
                     self.env_id,
@@ -262,10 +314,11 @@ class ConsumerTask:
         raw_value: bytes,
         dest: Dict[str, Any],
         parsed_message: dict,
+        msg: Any,
+        env_payload: Dict[str, Any],
         *,
         key: Optional[bytes] = None,
     ) -> None:
-        env_payload = self._env_payload or {"source": {}}
         brokers = dest["brokers"] or env_payload["source"]["brokers"]
         sec = security_dict(
             security_protocol=dest["security_protocol"],
@@ -299,6 +352,12 @@ class ConsumerTask:
             self.env_id, dest["topic"], len(self.RETRY_BACKOFFS) + 1, last_exc,
         )
         self._counters.bump_failed()
+        await self._route_to_dlq(
+            raw_value,
+            msg,
+            env_payload,
+            error_message=f"Destination {dest['topic']} produce failed after retries: {last_exc}",
+        )
 
     async def _route_to_dlq(
         self,
@@ -370,6 +429,7 @@ class ConsumerTask:
             await self._flush_counters()
 
     async def _flush_counters(self, force: bool = False) -> None:
+        self._counters.update_rates()
         if not force and not self._counters._dirty:
             return
         async with session_scope() as session:
@@ -382,6 +442,9 @@ class ConsumerTask:
                     messages_routed=self._counters.routed,
                     messages_failed=self._counters.failed,
                     last_message_at=self._counters.last_message_at,
+                    consumed_rate=self._counters.consumed_rate,
+                    routed_rate=self._counters.routed_rate,
+                    failed_rate=self._counters.failed_rate,
                 )
                 session.add(row)
             else:
@@ -389,6 +452,9 @@ class ConsumerTask:
                 row.messages_routed = self._counters.routed
                 row.messages_failed = self._counters.failed
                 row.last_message_at = self._counters.last_message_at
+                row.consumed_rate = self._counters.consumed_rate
+                row.routed_rate = self._counters.routed_rate
+                row.failed_rate = self._counters.failed_rate
             await session.commit()
         self._counters._dirty = False
 
