@@ -374,7 +374,7 @@ export function effectiveEnv(state, envId) {
 
 function mergeDraft(env, draft) {
   const out = { ...env };
-  for (const k of ['name', 'description', 'enabled', 'dlq_topic', 'dlq_brokers']) {
+  for (const k of ['name', 'description', 'enabled', 'delivery_mode', 'dlq_topic', 'dlq_brokers']) {
     if (k in draft && !k.startsWith('_')) out[k] = draft[k];
   }
   if (draft.source) {
@@ -439,6 +439,7 @@ export function buildEnvPayload(env, draft) {
     name: (draft?.name ?? env.name) || '',
     description: (draft?.description ?? env.description) || '',
     enabled: !!(draft?.enabled ?? env.enabled),
+    delivery_mode: (draft?.delivery_mode ?? env.delivery_mode) || 'at_least_once',
     dlq_topic: (draft?.dlq_topic ?? env.dlq_topic) || null,
     dlq_brokers: (draft?.dlq_brokers ?? env.dlq_brokers) || null,
     source: sourceOut,

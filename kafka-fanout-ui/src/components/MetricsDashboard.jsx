@@ -183,6 +183,53 @@ export default function MetricsDashboard({ status }) {
           </div>
         )}
       </div>
+
+      {status?.delivery_mode === 'outbox' && (
+        <div className="outbox-metrics mt-3" style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '1rem', background: 'var(--surface-soft)' }}>
+          <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.875rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)' }} />
+            Outbox Pipeline Status (Exactly-Once Semantics)
+          </h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
+            <div className="metric-card" style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border)', borderRadius: '4px', background: 'var(--surface)' }}>
+              <div className="metric-label" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Pending Outbox</div>
+              <div className="metric-value" style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--accent)' }}>
+                {(status?.outbox_pending ?? 0).toLocaleString()}
+              </div>
+              <div className="metric-rate" style={{ fontSize: '0.6875rem', opacity: 0.8, color: 'var(--text-muted)' }}>
+                oldest: {(status?.oldest_outbox_age_seconds ?? 0).toFixed(1)}s
+              </div>
+            </div>
+            <div className="metric-card" style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border)', borderRadius: '4px', background: 'var(--surface)' }}>
+              <div className="metric-label" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Dispatched</div>
+              <div className="metric-value" style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--ok)' }}>
+                {(status?.outbox_dispatched_total ?? 0).toLocaleString()}
+              </div>
+              <div className="metric-rate" style={{ fontSize: '0.6875rem', opacity: 0.8, color: 'var(--text-muted)' }}>
+                successful writes
+              </div>
+            </div>
+            <div className="metric-card" style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border)', borderRadius: '4px', background: 'var(--surface)' }}>
+              <div className="metric-label" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Outbox Retries</div>
+              <div className="metric-value" style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--warn)' }}>
+                {(status?.outbox_failed_total ?? 0).toLocaleString()}
+              </div>
+              <div className="metric-rate" style={{ fontSize: '0.6875rem', opacity: 0.8, color: 'var(--text-muted)' }}>
+                failed dispatch attempts
+              </div>
+            </div>
+            <div className="metric-card" style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border)', borderRadius: '4px', background: 'var(--surface)' }}>
+              <div className="metric-label" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Outbox DLQ</div>
+              <div className="metric-value" style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--err)' }}>
+                {(status?.outbox_dead_lettered_total ?? 0).toLocaleString()}
+              </div>
+              <div className="metric-rate" style={{ fontSize: '0.6875rem', opacity: 0.8, color: 'var(--text-muted)' }}>
+                exceeded max attempts
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

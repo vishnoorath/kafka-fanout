@@ -156,6 +156,7 @@ class EnvIn(BaseModel):
     name: str
     description: str = ""
     enabled: bool = False
+    delivery_mode: Literal["at_least_once", "outbox"] = "at_least_once"
     dlq_topic: Optional[str] = None
     dlq_brokers: Optional[str] = None
     source: SourceConfigIn
@@ -170,6 +171,7 @@ class EnvOut(BaseModel):
     name: str
     description: str
     enabled: bool
+    delivery_mode: Literal["at_least_once", "outbox"] = "at_least_once"
     dlq_topic: Optional[str] = None
     dlq_brokers: Optional[str] = None
     created_at: str
@@ -196,6 +198,12 @@ class RuntimeStatusOut(BaseModel):
     routed_rate: float = 0.0
     failed_rate: float = 0.0
     messages_unmatched: int = 0
+    delivery_mode: Literal["at_least_once", "outbox"] = "at_least_once"
+    outbox_pending: int = 0
+    outbox_dispatched_total: int = 0
+    outbox_failed_total: int = 0
+    outbox_dead_lettered_total: int = 0
+    oldest_outbox_age_seconds: float = 0.0
 
 
 class RuntimeLogOut(BaseModel):

@@ -53,6 +53,26 @@ async def init_db() -> None:
         except Exception:
             pass
 
+        # Outbox pattern self-healing migrations
+        try:
+            await conn.execute(text("ALTER TABLE envs ADD COLUMN delivery_mode TEXT DEFAULT 'at_least_once'"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE runtime_status ADD COLUMN delivery_mode TEXT DEFAULT 'at_least_once'"))
+        except Exception:
+            pass
+        for col in ["outbox_pending", "outbox_dispatched_total", "outbox_failed_total", "outbox_dead_lettered_total"]:
+            try:
+                await conn.execute(text(f"ALTER TABLE runtime_status ADD COLUMN {col} INTEGER DEFAULT 0"))
+            except Exception:
+                pass
+        try:
+            await conn.execute(text("ALTER TABLE runtime_status ADD COLUMN oldest_outbox_age_seconds REAL DEFAULT 0.0"))
+        except Exception:
+            pass
+
+
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency that yields an AsyncSession per request."""

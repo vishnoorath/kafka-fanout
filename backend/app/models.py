@@ -26,6 +26,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    LargeBinary,
+    Float,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -57,6 +59,7 @@ class Env(Base):
     # DLQ additions (PRD §12 decision 8.A). Both nullable.
     dlq_topic: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     dlq_brokers: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    delivery_mode: Mapped[str] = mapped_column(Text, nullable=False, default="at_least_once")
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
 
@@ -290,6 +293,12 @@ class RuntimeStatus(Base):
     routed_rate: Mapped[float] = mapped_column(default=0.0)
     failed_rate: Mapped[float] = mapped_column(default=0.0)
     messages_unmatched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delivery_mode: Mapped[str] = mapped_column(Text, nullable=False, default="at_least_once")
+    outbox_pending: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    outbox_dispatched_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    outbox_failed_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    outbox_dead_lettered_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    oldest_outbox_age_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     env: Mapped[Env] = relationship(back_populates="status")
 
@@ -327,3 +336,63 @@ class UnmatchedMessage(Base):
     __table_args__ = (Index("ix_unmatched_messages_env_ts", "env_id", "ts"),)
 
     env: Mapped[Env] = relationship()
+
+
+class Outbox(Base):
+    __tablename__ = "outbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    env_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("envs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    payload: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    headers_json: Mapped[str] = mapped_column(Text, nullable=False)
+    destinations_json: Mapped[str] = mapped_column(Text, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+    dispatched_at: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_outbox_env_id", "env_id"),
+        Index("ix_outbox_pending", "env_id", "id"),
+    )
+
+
+class OutboxDeadLetter(Base):
+    __tablename__ = "outbox_dead_letters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    env_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("envs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    outbox_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    headers_json: Mapped[str] = mapped_column(Text, nullable=False)
+    destinations_json: Mapped[str] = mapped_column(Text, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    dead_lettered_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+
+    __table_args__ = (Index("ix_outbox_dead_letters_env_id", "env_id"),)
+
+
+class OutboxWatermark(Base):
+    __tablename__ = "outbox_watermarks"
+
+    env_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("envs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    oldest_undispatched_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    oldest_undispatched_age_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+

@@ -18,18 +18,58 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session_scope
-from app.models import Env, RuntimeLog, RuntimeStatus, UnmatchedMessage
+from app.models import (
+    Env,
+    RuntimeLog,
+    RuntimeStatus,
+    UnmatchedMessage,
+    Outbox,
+    OutboxDeadLetter,
+    OutboxWatermark,
+)
 from app.runtime.consumer import ConsumerTask
+from app.runtime.outbox_dispatcher import OutboxDispatcher
 from app.runtime.producer import DLQPublisher, ProducerPool
 
 log = logging.getLogger(__name__)
+
+
+class EnvTasks:
+    """Wrapper that manages consumer and outbox dispatcher lifecycles together."""
+
+    def __init__(
+        self,
+        consumer: ConsumerTask,
+        dispatcher: Optional[OutboxDispatcher] = None,
+    ) -> None:
+        self.consumer = consumer
+        self.dispatcher = dispatcher
+
+    def is_running(self) -> bool:
+        if not self.consumer.is_running():
+            return False
+        if self.dispatcher is not None and not self.dispatcher.is_running():
+            return False
+        return True
+
+    async def start(self) -> None:
+        await self.consumer.start()
+        if self.dispatcher is not None:
+            await self.dispatcher.start()
+
+    async def stop(self) -> None:
+        # Stop dispatcher first so no new messages are published during shutdown
+        if self.dispatcher is not None:
+            await self.dispatcher.stop()
+        await self.consumer.stop()
+
 
 
 class RuntimeManager:
     def __init__(self) -> None:
         self.pool = ProducerPool()
         self.dlq = DLQPublisher(self.pool)
-        self._tasks: Dict[str, ConsumerTask] = {}
+        self._tasks: Dict[str, EnvTasks] = {}
         # Per-env asyncio lock so two concurrent start() calls can't
         # both create new tasks (which previously caused a "stop then
         # shows running" race when the second start spawned a fresh
@@ -84,9 +124,28 @@ class RuntimeManager:
             # Wipe counters + logs from any previous run so the UI
             # doesn't show stale data when the new consumer starts.
             await self._reset_status_and_logs(env_id)
-            task = ConsumerTask(env_id, self.pool, self.dlq, manager=self)
-            self._tasks[env_id] = task
-            await task.start()
+
+            # Load environment delivery mode
+            async with session_scope() as session:
+                env = await session.get(Env, env_id)
+                delivery_mode = env.delivery_mode if env else "at_least_once"
+                
+                # Also update delivery_mode on the RuntimeStatus record so status matches env config
+                status = await session.get(RuntimeStatus, env_id)
+                if status is not None:
+                    status.delivery_mode = delivery_mode
+                    await session.commit()
+
+            consumer = ConsumerTask(env_id, self.pool, self.dlq, manager=self, mode=delivery_mode)
+            dispatcher = None
+            if delivery_mode == "outbox":
+                dispatcher = OutboxDispatcher(env_id, self.pool, self.dlq, manager=self)
+                # Sync status/watermark immediately on start
+                await dispatcher._update_watermark_and_status()
+
+            tasks = EnvTasks(consumer, dispatcher)
+            self._tasks[env_id] = tasks
+            await tasks.start()
 
     async def stop(self, env_id: str) -> None:
         # Serialize stop() with start() so a fast Stop→Start sequence
@@ -144,6 +203,14 @@ class RuntimeManager:
                 except Exception as exc:  # noqa: BLE001
                     log.warning("reset offsets: admin close failed: %s", exc)
 
+        # Clear Outbox, OutboxDeadLetter, and OutboxWatermark tables for this env
+        async with session_scope() as session:
+            await session.execute(delete(Outbox).where(Outbox.env_id == env_id))
+            await session.execute(delete(OutboxDeadLetter).where(OutboxDeadLetter.env_id == env_id))
+            await session.execute(delete(OutboxWatermark).where(OutboxWatermark.env_id == env_id))
+            await session.commit()
+
+
     async def _load_consumer_group_info(self, env_id: str) -> tuple[Optional[str], Optional[str], dict]:
         from sqlalchemy.orm import selectinload
 
@@ -185,6 +252,11 @@ class RuntimeManager:
                 row.messages_unmatched = 0
                 row.last_message_at = None
                 row.last_error = None
+                row.outbox_pending = 0
+                row.outbox_dispatched_total = 0
+                row.outbox_failed_total = 0
+                row.outbox_dead_lettered_total = 0
+                row.oldest_outbox_age_seconds = 0.0
             # Wipe logs so the "recent logs" panel doesn't show lines
             # from the previous run. The log table grows back from the
             # new consumer's appends.

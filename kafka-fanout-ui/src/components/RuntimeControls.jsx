@@ -35,6 +35,26 @@ export default function RuntimeControls({ env }) {
   const [logs, setLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(true);
   const [activeSubTab, setActiveSubTab] = useState('logs');
+  const [deadLetters, setDeadLetters] = useState([]);
+  const [loadingDLQ, setLoadingDLQ] = useState(false);
+
+  async function fetchDeadLetters() {
+    setLoadingDLQ(true);
+    try {
+      const data = await api.getOutboxDeadLetters(env.id);
+      setDeadLetters(data || []);
+    } catch (err) {
+      console.error('Failed to fetch outbox dead letters', err);
+    } finally {
+      setLoadingDLQ(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeSubTab === 'outbox-dlq') {
+      fetchDeadLetters();
+    }
+  }, [env.id, activeSubTab]);
   // Ref to the bottom sentinel for auto-scroll
   const logsBottomRef = useRef(null);
 
@@ -175,11 +195,27 @@ export default function RuntimeControls({ env }) {
               <span className="tab-count">({logs.length})</span>
             )}
           </button>
+          {status?.delivery_mode === 'outbox' && (
+            <button
+              className={`tab ${activeSubTab === 'outbox-dlq' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveSubTab('outbox-dlq');
+                setShowLogs(false);
+              }}
+            >
+              Outbox DLQ
+              {status?.outbox_dead_lettered_total > 0 && (
+                <span className="tab-count" style={{ backgroundColor: 'var(--err)', color: 'white', padding: '0.1rem 0.3rem', borderRadius: '3px', marginLeft: '0.35rem' }}>
+                  {status.outbox_dead_lettered_total}
+                </span>
+              )}
+            </button>
+          )}
         </div>
 
         {activeSubTab === 'metrics' ? (
           <MetricsDashboard status={status} />
-        ) : showLogs ? (
+        ) : activeSubTab === 'logs' && showLogs ? (
           <div className="logs-panel mt-2">
             {logs.length === 0 ? (
               <div className="muted">No log lines yet. Start the consumer to see live logs.</div>
@@ -196,6 +232,41 @@ export default function RuntimeControls({ env }) {
                   </React.Fragment>
                 ))}
                 <div ref={logsBottomRef} />
+              </div>
+            )}
+          </div>
+        ) : activeSubTab === 'outbox-dlq' ? (
+          <div className="logs-panel mt-2" style={{ maxHeight: 'calc(100vh - 380px)', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                Shows messages that failed to write to target destinations after all retries.
+              </span>
+              <button className="btn" onClick={fetchDeadLetters} disabled={loadingDLQ} style={{ padding: '0.2rem 0.5rem', fontSize: 'var(--fs-xs)' }}>
+                {loadingDLQ ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
+            {deadLetters.length === 0 ? (
+              <div className="muted flex-center" style={{ height: '100px' }}>No outbox dead letters recorded.</div>
+            ) : (
+              <div className="logs-grid" style={{ gridTemplateColumns: '150px 180px 1fr 220px 80px' }}>
+                <div className="log-header">Time Moved</div>
+                <div className="log-header">Idempotency Key</div>
+                <div className="log-header">Payload</div>
+                <div className="log-header">Reason / Error</div>
+                <div className="log-header">Attempts</div>
+                {deadLetters.map((dl) => (
+                  <React.Fragment key={dl.id}>
+                    <div className="log-cell ts">{new Date(dl.dead_lettered_at).toLocaleString()}</div>
+                    <div className="log-cell message">{dl.idempotency_key}</div>
+                    <div className="log-cell message" style={{ fontFamily: 'monospace', fontSize: 'var(--fs-xs)', whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: '100px' }}>
+                      {dl.payload}
+                    </div>
+                    <div className="log-cell message" style={{ color: 'var(--err)', fontSize: 'var(--fs-xs)', whiteSpace: 'pre-wrap' }}>
+                      {dl.last_error}
+                    </div>
+                    <div className="log-cell message" style={{ textAlign: 'center' }}>{dl.attempts}</div>
+                  </React.Fragment>
+                ))}
               </div>
             )}
           </div>

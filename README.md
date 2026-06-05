@@ -9,6 +9,20 @@ The fan-out logic is **data-driven**: every behavior (which source, which condit
 
 See [`PRD.md`](./PRD.md) for the full design specification.
 
+## Architectural Choices
+
+- **Delivery Mode – At-least-once vs Outbox**  
+  Environments can be configured to use either the traditional at‑least‑once delivery (`delivery_mode = "at_least_once"`) or the *Transactional Outbox* pattern (`delivery_mode = "outbox"`). The outbox mode writes messages to a local SQLite outbox table and dispatches them via a background dispatcher, guaranteeing exactly‑once‑like semantics when downstream consumers perform deduplication.
+
+- **System‑Managed Header – `X-Source-Coord`**  
+  Every produced message now includes a non‑editable `X-Source-Coord` header (`<topic>:<partition>:<offset>`). This enables downstream services to reliably trace the source location and perform idempotent processing.
+
+- **Dead‑Letter Handling**  
+  In outbox mode, failed deliveries after the configured retry attempts are moved to an `outbox_dead_letters` table and exposed via the UI. The UI provides an *Outbox DLQ* tab for inspection.
+
+- **Metrics & Watermarks**  
+  Runtime status now exposes outbox‑specific counters (`outbox_pending`, `outbox_dispatched_total`, `outbox_failed_total`, `outbox_dead_lettered_total`) and the age of the oldest pending outbox entry, aiding operational visibility.
+
 ## Repo layout
 
 ```
