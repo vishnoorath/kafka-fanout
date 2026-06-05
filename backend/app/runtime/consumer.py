@@ -254,6 +254,7 @@ class ConsumerTask:
 
     async def _handle_message(self, msg: Any, env_payload: Dict[str, Any]) -> None:
         raw = msg.value  # bytes
+        self._counters.bump_consumed()
         # 1. Try to parse JSON.
         try:
             parsed = json.loads(raw)
@@ -293,12 +294,9 @@ class ConsumerTask:
                 routing_tasks.append(
                     self._send_to_destination(raw, d, parsed, msg, env_payload, key=msg.key)
                 )
-                self._counters.bump_routed(1)
 
         if routing_tasks:
             await asyncio.gather(*routing_tasks)
-
-        self._counters.bump_consumed()
 
         if not any_dg_matched:
             self._counters.bump_unmatched()
@@ -346,6 +344,7 @@ class ConsumerTask:
                     key=key,
                     headers=headers,
                 )
+                self._counters.bump_routed(1)
                 return
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
