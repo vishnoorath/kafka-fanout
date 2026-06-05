@@ -32,7 +32,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from aiokafka import AIOKafkaConsumer
+from aiokafka import AIOKafkaConsumer, TopicPartition, OffsetAndMetadata
+import sqlalchemy
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,8 +47,9 @@ from app.models import (
     MatchConditionValue,
     RuntimeStatus,
     SourceConfig,
+    Outbox,
 )
-from app.runtime.matcher import build_headers, evaluate_match_condition
+from app.runtime.matcher import build_headers, evaluate_match_condition, build_x_source_coord
 from app.runtime.producer import DLQPublisher, ProducerPool, security_dict
 
 log = logging.getLogger(__name__)
@@ -138,11 +140,13 @@ class ConsumerTask:
         dlq: DLQPublisher,
         *,
         manager: Optional[Any] = None,
+        mode: str = "at_least_once",
     ) -> None:
         self.env_id = env_id
         self._pool = pool
         self._dlq = dlq
         self._manager = manager
+        self._mode = mode
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
         self._counters = _Counters()
@@ -151,6 +155,9 @@ class ConsumerTask:
         # when a destination inherits the source broker.
         self._env_payload: Optional[Dict[str, Any]] = None
         self._consumer: Optional[AIOKafkaConsumer] = None
+        # Track offsets to commit per TopicPartition
+        self._next_offset_to_commit: Dict[Any, int] = {}
+        self._last_offset_commit_time: float = 0.0
 
     # ---------- lifecycle ----------
 
@@ -220,7 +227,7 @@ class ConsumerTask:
                 bootstrap_servers=source["brokers"],
                 group_id=source["consumer_group"],
                 auto_offset_reset=source["offset_reset"],
-                enable_auto_commit=True,
+                enable_auto_commit=self._mode == "at_least_once",
                 **sec,
             )
             await self._consumer.start()
@@ -228,6 +235,9 @@ class ConsumerTask:
 
             # Periodically flush counters to the DB.
             flusher = asyncio.create_task(self._counter_flusher(), name=f"flush-{self.env_id}")
+            offset_committer = None
+            if self._mode == "outbox":
+                offset_committer = asyncio.create_task(self._offset_committer_task(), name=f"offset-commit-{self.env_id}")
 
             try:
                 async for msg in self._consumer:
@@ -236,10 +246,19 @@ class ConsumerTask:
                     await self._handle_message(msg, env_payload)
             finally:
                 flusher.cancel()
+                if offset_committer is not None:
+                    offset_committer.cancel()
                 try:
                     await flusher
                 except (asyncio.CancelledError, Exception):  # noqa: BLE001
                     pass
+                if offset_committer is not None:
+                    try:
+                        await offset_committer
+                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                        pass
+                if self._mode == "outbox":
+                    await self._commit_offsets(force=True)
 
             await self._flush_counters(force=True)
         except Exception as exc:  # noqa: BLE001 — surface to status, keep manager alive
@@ -267,6 +286,17 @@ class ConsumerTask:
             )
             await self._route_to_dlq(raw, msg, env_payload, error_message=str(exc))
             self._counters.bump_failed()
+            if self._mode == "outbox":
+                tp = TopicPartition(msg.topic, msg.partition)
+                self._next_offset_to_commit[tp] = msg.offset + 1
+            return
+
+        if self._mode == "outbox":
+            wrote = await self._write_to_outbox(parsed, raw, msg, env_payload)
+            if wrote:
+                self._counters.bump_routed(1)
+            tp = TopicPartition(msg.topic, msg.partition)
+            self._next_offset_to_commit[tp] = msg.offset + 1
             return
 
         # 2. Iterate domain groupings. For each DG, evaluate every match
@@ -323,16 +353,20 @@ class ConsumerTask:
         *,
         key: Optional[bytes] = None,
     ) -> None:
-        brokers = dest["brokers"] or env_payload["source"]["brokers"]
+        use_source = bool(dest.get("use_source_broker", True))
+        src = env_payload["source"]
+        
+        brokers = src["brokers"] if use_source else dest.get("brokers")
         sec = security_dict(
-            security_protocol=dest["security_protocol"],
-            sasl_mechanism=dest.get("sasl_mechanism"),
-            sasl_username=dest.get("sasl_username"),
-            sasl_password=dest.get("sasl_password"),
-            ssl_ca_location=dest.get("ssl_ca_location"),
+            security_protocol=src["security_protocol"] if use_source else dest.get("security_protocol", "PLAINTEXT"),
+            sasl_mechanism=src.get("sasl_mechanism") if use_source else dest.get("sasl_mechanism"),
+            sasl_username=src.get("sasl_username") if use_source else dest.get("sasl_username"),
+            sasl_password=src.get("sasl_password") if use_source else dest.get("sasl_password"),
+            ssl_ca_location=src.get("ssl_ca_location") if use_source else dest.get("ssl_ca_location"),
         )
         producer = await self._pool.get_producer(brokers=brokers, **sec)
         headers = build_headers(dest.get("headers", []), parsed_message)
+        headers.insert(0, build_x_source_coord(msg))
         last_exc: Optional[Exception] = None
         for attempt, backoff in enumerate((0.0,) + self.RETRY_BACKOFFS):
             if backoff:
@@ -393,6 +427,7 @@ class ConsumerTask:
                 source_partition=msg.partition,
                 source_offset=msg.offset,
                 error_message=error_message,
+                source_coord_header=build_x_source_coord(msg)[1],
             )
         except Exception as exc:  # noqa: BLE001 — DLQ failures must not crash the source
             log.error("env %s: DLQ publish failed: %s", self.env_id, exc)
@@ -493,6 +528,131 @@ class ConsumerTask:
             if env is None:
                 return None
             return _env_to_dict(env)
+
+    async def _offset_committer_task(self) -> None:
+        """Periodically commit consumer offsets in outbox mode (max 1Hz)."""
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+            await self._commit_offsets()
+
+    async def _commit_offsets(self, force: bool = False) -> None:
+        if self._mode != "outbox" or not self._consumer:
+            return
+        now = time.time()
+        if not force and now - self._last_offset_commit_time < 1.0:
+            return
+        
+        to_commit = {}
+        for tp, offset in list(self._next_offset_to_commit.items()):
+            to_commit[tp] = OffsetAndMetadata(offset, "")
+        
+        if to_commit:
+            try:
+                await self._consumer.commit(to_commit)
+                for tp, offset in to_commit.items():
+                    if self._next_offset_to_commit.get(tp) == offset.offset:
+                        del self._next_offset_to_commit[tp]
+                self._last_offset_commit_time = now
+                log.debug("Committed offsets in outbox mode: %s", to_commit)
+            except Exception as exc:
+                log.error("Failed to commit offsets in outbox mode: %s", exc)
+
+    async def _write_to_outbox(
+        self,
+        parsed: dict,
+        raw: bytes,
+        msg: Any,
+        env_payload: Dict[str, Any],
+    ) -> bool:
+        """Writes routing metadata to the outbox database table inside a transaction.
+        
+        Returns True if a new row was inserted, False if skipped due to duplicate idempotency key.
+        """
+        dest_list = []
+        for dg in env_payload["domain_groupings"]:
+            matched = False
+            for mc in dg["match_conditions"]:
+                r = evaluate_match_condition(
+                    key_path=mc["key_path"],
+                    operator=mc["operator"],
+                    values=mc["values"],
+                    case_insensitive=bool(mc["case_insensitive"]),
+                    message=parsed,
+                )
+                if r.matched:
+                    matched = True
+                    break
+            if not matched:
+                continue
+            
+            for d in dg["destinations"]:
+                headers = build_headers(d.get("headers", []), parsed)
+                headers.insert(0, build_x_source_coord(msg))
+                use_source = bool(d.get("use_source_broker", True))
+                src = env_payload["source"]
+                
+                dest_list.append({
+                    "topic": d["topic"],
+                    "use_source_broker": use_source,
+                    "brokers": src["brokers"] if use_source else d.get("brokers"),
+                    "security_protocol": src["security_protocol"] if use_source else d.get("security_protocol", "PLAINTEXT"),
+                    "sasl_mechanism": src.get("sasl_mechanism") if use_source else d.get("sasl_mechanism"),
+                    "sasl_username": src.get("sasl_username") if use_source else d.get("sasl_username"),
+                    "sasl_password": src.get("sasl_password") if use_source else d.get("sasl_password"),
+                    "ssl_ca_location": src.get("ssl_ca_location") if use_source else d.get("ssl_ca_location"),
+                    "headers": [(name, val.decode("utf-8", errors="replace")) for name, val in headers]
+                })
+        
+        if not dest_list:
+            self._counters.bump_unmatched()
+            msg_str = json.dumps(parsed)
+            log.debug("env %s: unmatched message: %s", self.env_id, msg_str)
+            if self._manager is not None:
+                await self._manager.append_log(
+                    self.env_id,
+                    level="WARN",
+                    message=f"No matching route found for message: {msg_str}",
+                )
+                await self._manager.log_unmatched_message(
+                    self.env_id,
+                    message_payload=msg_str,
+                )
+            return False
+
+        idempotency_key = f"{self.env_id}:{msg.topic}:{msg.partition}:{msg.offset}"
+        async with session_scope() as session:
+            try:
+                outbox_entry = Outbox(
+                    env_id=self.env_id,
+                    idempotency_key=idempotency_key,
+                    payload=raw,
+                    headers_json="[]",
+                    destinations_json=json.dumps(dest_list),
+                    attempts=0,
+                    last_error=None,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                    dispatched_at=None,
+                )
+                session.add(outbox_entry)
+                await session.commit()
+                return True
+            except sqlalchemy.exc.IntegrityError:
+                log.warning(
+                    "env %s: duplicate outbox entry for key %s (crash-recovery replay) - skipping",
+                    self.env_id,
+                    idempotency_key,
+                )
+                if self._manager is not None:
+                    await self._manager.append_log(
+                        self.env_id,
+                        level="WARN",
+                        message=f"Duplicate outbox entry {idempotency_key} skipped (replay)",
+                    )
+                return False
+
 
 
 def _env_to_dict(env: Env) -> Dict[str, Any]:

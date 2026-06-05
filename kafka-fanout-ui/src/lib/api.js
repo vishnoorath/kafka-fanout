@@ -60,6 +60,7 @@ export const api = {
   testMessage: (id, message) => request('POST', `/envs/${id}/test`, { message }),
   exportAll: () => request('GET', '/export'),
   importAll: (envelope) => request('POST', '/import', envelope),
+  getOutboxDeadLetters: (id) => request('GET', `/envs/${id}/outbox/dead-letters`),
   subscribeToEnvStream: (envId, onStatus, onLog, onError) => {
     const url = BASE.startsWith('http')
       ? `${BASE}/envs/${envId}/stream`

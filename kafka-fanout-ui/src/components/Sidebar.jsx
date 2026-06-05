@@ -275,8 +275,15 @@ export default function Sidebar() {
           </>
         }
       >
-        Stops the consumer (if running), deletes the consumer group,
-        and lets the next Start pick up from <code>earliest</code>.
+        <div>
+          Stops the consumer (if running), deletes the consumer group,
+          and lets the next Start pick up from <code>earliest</code>.
+          {pending && state.envs.find((e) => e.id === pending.envId)?.delivery_mode === 'outbox' && (
+            <div style={{ marginTop: '0.75rem', color: 'var(--err)', fontSize: '0.875rem' }}>
+              <strong>Warning:</strong> In Outbox mode, this will also permanently delete all pending and dead outbox messages for this environment.
+            </div>
+          )}
+        </div>
       </Modal>
     </aside>
   );

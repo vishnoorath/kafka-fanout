@@ -415,3 +415,16 @@ def test_mc_invalid_jmespath_marks_expression_invalid():
     assert r.matched is False
     assert r.expression_invalid is True
     assert "invalid JMESPath" in (r.error or "")
+
+
+def test_build_x_source_coord():
+    from app.runtime.matcher import build_x_source_coord
+    class MockMsg:
+        topic = "test-topic"
+        partition = 2
+        offset = 42
+
+    name, val = build_x_source_coord(MockMsg())
+    assert name == "X-Source-Coord"
+    assert val == b"test-topic:2:42"
+

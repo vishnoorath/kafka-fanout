@@ -152,6 +152,7 @@ class DLQPublisher:
         source_partition: int,
         source_offset: int,
         error_message: str,
+        source_coord_header: Optional[bytes] = None,
     ) -> None:
         producer = await self._pool.get_producer(
             brokers=dlq_brokers,
@@ -170,8 +171,13 @@ class DLQPublisher:
                 "error": error_message,
             }
         ).encode("utf-8")
+        headers = []
+        if source_coord_header is not None:
+            headers.append(("X-Source-Coord", source_coord_header))
+        headers.append(("__error", error_header))
         await producer.send_and_wait(
             topic=dlq_topic,
             value=raw_value,
-            headers=[("__error", error_header)],
+            headers=headers,
         )
+

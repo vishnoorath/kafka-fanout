@@ -99,7 +99,27 @@ export default function EnvHeader({ env }) {
           </span>
         )}
       </div>
-      <div className="btn-group">
+      <div className="btn-group" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <label style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Delivery Mode:</label>
+          <select
+            className="select"
+            style={{ width: 'auto', padding: '0.15rem 0.4rem', height: 'auto', fontSize: '0.8125rem' }}
+            value={eff.delivery_mode || 'at_least_once'}
+            onChange={(e) => {
+              dispatch({
+                type: 'PATCH_DRAFT',
+                envId: env.id,
+                patch: { delivery_mode: e.target.value },
+                touched: { delivery_mode: true }
+              });
+            }}
+          >
+            <option value="at_least_once">At-least-once</option>
+            <option value="outbox">Outbox (EOS)</option>
+          </select>
+          <span className="muted" title="Outbox mode ensures exactly-once-like publishing to all matching topics. Note: Downstream consumers must deduplicate messages using X-Source-Coord headers." style={{ cursor: 'help', fontSize: '0.875rem' }}>ⓘ</span>
+        </div>
         {saveState}
         <button className="btn" onClick={exportAll}>
           Export

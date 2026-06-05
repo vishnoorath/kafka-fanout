@@ -6,6 +6,7 @@ mappings, destinations, and headers are rewritten in a single transaction.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import List
@@ -131,6 +132,7 @@ async def create_env(
         name=payload.name,
         description=payload.description,
         enabled=1 if payload.enabled else 0,
+        delivery_mode=payload.delivery_mode,
         dlq_topic=payload.dlq_topic,
         dlq_brokers=payload.dlq_brokers,
         created_at=now,
@@ -195,6 +197,7 @@ async def update_env(
     env.name = payload.name
     env.description = payload.description
     env.enabled = 1 if payload.enabled else 0
+    env.delivery_mode = payload.delivery_mode
     env.dlq_topic = payload.dlq_topic
     env.dlq_brokers = payload.dlq_brokers
     env.updated_at = _now()
@@ -300,6 +303,7 @@ async def import_envs(
                 name=env_in.name,
                 description=env_in.description,
                 enabled=1 if env_in.enabled else 0,
+                delivery_mode=env_in.delivery_mode,
                 dlq_topic=env_in.dlq_topic,
                 dlq_brokers=env_in.dlq_brokers,
                 created_at=now,
@@ -323,6 +327,7 @@ async def import_envs(
             existing_env = await _load_env(session, existing_env.id)
             existing_env.description = env_in.description
             existing_env.enabled = 1 if env_in.enabled else 0
+            existing_env.delivery_mode = env_in.delivery_mode
             existing_env.dlq_topic = env_in.dlq_topic
             existing_env.dlq_brokers = env_in.dlq_brokers
             existing_env.updated_at = now
@@ -354,3 +359,43 @@ async def import_envs(
     result = await session.execute(stmt)
     envs = result.scalars().all()
     return redact_env_list([build_read_shape(e) for e in envs])
+
+
+@router.get("/envs/{env_id}/outbox/dead-letters")
+async def get_outbox_dead_letters(
+    env_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    await _load_env(session, env_id)
+
+    from app.models import OutboxDeadLetter
+    stmt = (
+        select(OutboxDeadLetter)
+        .where(OutboxDeadLetter.env_id == env_id)
+        .order_by(OutboxDeadLetter.dead_lettered_at.desc())
+    )
+    result = await session.execute(stmt)
+    rows = result.scalars().all()
+
+    out = []
+    for r in rows:
+        payload_str = ""
+        try:
+            payload_str = r.payload.decode("utf-8")
+        except Exception:
+            payload_str = repr(r.payload)
+
+        out.append({
+            "id": r.id,
+            "outbox_id": r.outbox_id,
+            "idempotency_key": r.idempotency_key,
+            "payload": payload_str,
+            "headers": json.loads(r.headers_json) if r.headers_json else [],
+            "destinations": json.loads(r.destinations_json) if r.destinations_json else [],
+            "attempts": r.attempts,
+            "last_error": r.last_error,
+            "created_at": r.created_at,
+            "dead_lettered_at": r.dead_lettered_at,
+        })
+    return out
+

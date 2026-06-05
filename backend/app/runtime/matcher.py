@@ -242,3 +242,12 @@ def build_headers(
                 value_str = str(resolved)
         out.append((name, value_str.encode("utf-8")))
     return out
+
+
+def build_x_source_coord(msg: Any) -> Tuple[str, bytes]:
+    """Build the X-Source-Coord system header for message deduplication/tracing.
+
+    Returns a tuple of (header_name, header_value_bytes) representing topic:partition:offset.
+    """
+    return ("X-Source-Coord", f"{msg.topic}:{msg.partition}:{msg.offset}".encode("utf-8"))
+
