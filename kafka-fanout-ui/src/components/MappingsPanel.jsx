@@ -244,7 +244,7 @@ function DestinationEditor({ destination, onChange, onRemove, testMessageParsed 
   );
 }
 
-function getJsonPaths(obj, prefix = '#', paths = []) {
+function getJsonPaths(obj, prefix = '@', paths = []) {
   if (obj === null || typeof obj !== 'object') {
     return paths;
   }
@@ -256,7 +256,7 @@ function getJsonPaths(obj, prefix = '#', paths = []) {
   }
   for (const key of Object.keys(obj)) {
     const cleanKey = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : `"${key}"`;
-    const currentPath = prefix === '#' ? `#${cleanKey}` : `${prefix}.${cleanKey}`;
+    const currentPath = prefix === '@' ? `@.${cleanKey}` : `${prefix}.${cleanKey}`;
     paths.push(currentPath);
     if (typeof obj[key] === 'object' && obj[key] !== null) {
       getJsonPaths(obj[key], currentPath, paths);
@@ -343,7 +343,7 @@ function MatchConditionEditor({ mc, onChange, testMessageParsed }) {
           </div>
         )}
         <span className="hint">
-          Use JMESPath syntax, e.g. <code>#Message.TableName</code> or <code>#items[0].id</code>.
+          Use JMESPath syntax, e.g. <code>@.Message.TableName</code> or <code>@.items[0].id</code>.
         </span>
       </div>
       <div className="form-row">

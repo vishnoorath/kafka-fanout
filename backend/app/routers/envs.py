@@ -320,6 +320,7 @@ async def import_envs(
             )
             session.add(RuntimeStatus(env_id=new_id, state="stopped"))
         else:
+            existing_env = await _load_env(session, existing_env.id)
             existing_env.description = env_in.description
             existing_env.enabled = 1 if env_in.enabled else 0
             existing_env.dlq_topic = env_in.dlq_topic

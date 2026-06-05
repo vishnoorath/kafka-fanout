@@ -1,19 +1,22 @@
 import jmespath from 'jmespath';
 
 /**
- * Translate our `#` root prefix into JMESPath's implicit-root form.
+ * Translate our `@` root prefix into JMESPath's implicit-root form.
  * Mirrors the backend `matcher._preprocess`.
  *
- *   #Message.TableName  ->  Message.TableName
- *   #                   ->  @
- *   #items[0].id        ->  items[0].id
+ *   @.Message.TableName  ->  Message.TableName
+ *   @                    ->  @
+ *   @.items[0].id        ->  items[0].id
  */
 function preprocess(expression) {
   if (!expression) return expression;
   const stripped = expression.replace(/^\s+/, '');
   const leadingWs = expression.slice(0, expression.length - stripped.length);
-  if (!stripped.startsWith('#')) return expression;
-  const body = stripped.slice(1);
+  if (!stripped.startsWith('@')) return expression;
+  let body = stripped.slice(1);
+  if (body.startsWith('.')) {
+    body = body.slice(1);
+  }
   return leadingWs + (body === '' ? '@' : body);
 }
 

@@ -16,29 +16,28 @@ import jmespath
 # ---------- expression preprocessing ----------
 
 def _preprocess(expression: str) -> str:
-    """Translate our `#` root prefix into JMESPath's implicit-root form.
+    """Translate our `@` root prefix into JMESPath's implicit-root form.
 
-    JMESPath itself doesn't have a `#` identifier. We use `#` in the UI
-    as a friendly way to say "from the root document" (mirroring
-    JSONPath's `$`). The transformation is just: if the expression
-    starts with `#`, drop the `#`. The remaining text is a normal
-    JMESPath expression evaluated against the root.
+    JMESPath itself uses `@` for the current node. If the expression
+    starts with `@.`, we drop the `@.` to make it a normal implicit root expression.
+    If it's just `@`, it stays `@`.
 
-        #Message.TableName  ->  Message.TableName
-        #                   ->  @   (the whole document)
-        #items[0].id        ->  items[0].id
+        @.Message.TableName  ->  Message.TableName
+        @                    ->  @
+        @.items[0].id        ->  items[0].id
 
-    A bare `#` is unusual but legal; we map it to JMESPath's `@` (the
-    current/root node identifier).
+    A bare `@` is mapped to `@` (the current/root node identifier).
     """
     if not expression:
         return expression
     stripped = expression.lstrip()
-    if not stripped.startswith("#"):
+    if not stripped.startswith("@"):
         return expression
-    # Preserve leading whitespace if any (we accept `   #foo` too).
+    # Preserve leading whitespace if any (we accept `   @foo` too).
     leading_ws = expression[: len(expression) - len(stripped)]
     body = stripped[1:]
+    if body.startswith("."):
+        body = body[1:]
     if body == "":
         return leading_ws + "@"
     return leading_ws + body

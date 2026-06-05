@@ -27,8 +27,13 @@ export default function VisualTopology({ env }) {
         if (!pathVal) return false;
         
         // Inline simple evaluation
-        const cleanPath = pathVal.startsWith('#') ? pathVal.slice(1) : pathVal;
-        const keys = cleanPath.split('.');
+        let cleanPath = pathVal;
+        if (cleanPath.startsWith('@.')) {
+          cleanPath = cleanPath.slice(2);
+        } else if (cleanPath.startsWith('@')) {
+          cleanPath = cleanPath.slice(1);
+        }
+        const keys = cleanPath ? cleanPath.split('.') : [];
         let val = parsed;
         for (const k of keys) {
           if (val && typeof val === 'object') {

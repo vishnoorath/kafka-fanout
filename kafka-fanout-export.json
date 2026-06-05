@@ -1,0 +1,467 @@
+{
+  "version": 1,
+  "envs": [
+    {
+      "id": "a10c1ae8-560f-4a0d-ae05-02dcc405280a",
+      "name": "UAT",
+      "description": "Configuration for UAT Kafka Fanout",
+      "enabled": false,
+      "dlq_topic": null,
+      "dlq_brokers": null,
+      "created_at": "2026-06-04T06:05:36.312180+00:00",
+      "updated_at": "2026-06-04T12:33:48.544788+00:00",
+      "source": {
+        "brokers": "10.10.98.39:9092",
+        "topic": "uat_sync_changes",
+        "consumer_group": "dataengg_fanout",
+        "offset_reset": "latest",
+        "security_protocol": "PLAINTEXT",
+        "sasl_mechanism": null,
+        "sasl_username": "",
+        "sasl_password": null,
+        "ssl_ca_location": ""
+      },
+      "domain_groupings": [
+        {
+          "name": "Registration",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[Cattles]"
+                },
+                {
+                  "value": "[dbo].[Users]"
+                },
+                {
+                  "value": "[dbo].[Farms]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Registration",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Organization",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[Organization]"
+                },
+                {
+                  "value": "[dbo].[OrganizationRole]"
+                },
+                {
+                  "value": "[dbo].[OrganizationType]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Organization",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Common",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[UserRoles]"
+                },
+                {
+                  "value": "[dbo].[LinkeduserFMs]"
+                },
+                {
+                  "value": "[dbo].[Contract]"
+                },
+                {
+                  "value": "[dbo].[LinkedCattles]"
+                },
+                {
+                  "value": "[dbo].[UserLocation]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Common",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Connector",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[tbl_MilkChillerSales]"
+                },
+                {
+                  "value": "[dbo].[tbl_MilkCollectorSales]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Connector",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Breeding",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[BreedCycle]"
+                },
+                {
+                  "value": "[dbo].[tbl_Insemination]"
+                },
+                {
+                  "value": "[dbo].[tbl_Heat]"
+                },
+                {
+                  "value": "[dbo].[tbl_Calving]"
+                },
+                {
+                  "value": "[dbo].[tbl_Pd]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Breeding",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Health",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[tbl_Deworming]"
+                },
+                {
+                  "value": "[dbo].[tbl_CattleLabTests]"
+                },
+                {
+                  "value": "[dbo].[tbl_Treatment]"
+                },
+                {
+                  "value": "[dbo].[tbl_TreatmentDisease]"
+                },
+                {
+                  "value": "[dbo].[tbl_Vaccination]"
+                },
+                {
+                  "value": "[dbo].[tbl_TreatmentSymptom]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Health",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Breeding_Health_Combo",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[BreedCycle]"
+                },
+                {
+                  "value": "[dbo].[tbl_CattleLabTests]"
+                },
+                {
+                  "value": "[dbo].[tbl_Deworming]"
+                },
+                {
+                  "value": "[dbo].[tbl_Heat]"
+                },
+                {
+                  "value": "[dbo].[tbl_Insemination]"
+                },
+                {
+                  "value": "[dbo].[tbl_Pd]"
+                },
+                {
+                  "value": "[dbo].[tbl_Vaccination]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Breeding_Health_Combo",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Farmer_SP_Org_Association",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[VLCFarmerContracts]"
+                },
+                {
+                  "value": "[dbo].[StockistFarmerContracts]"
+                },
+                {
+                  "value": "[dbo].[OrganizationUserContracts]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Farmer_SP_Org_Association",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Farmer_SP_Activities",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[CattleMilkingDatas]"
+                },
+                {
+                  "value": "[dbo].[Cattles]"
+                },
+                {
+                  "value": "[dbo].[FarmMilkingDatas]"
+                },
+                {
+                  "value": "[dbo].[Farms]"
+                },
+                {
+                  "value": "[dbo].[RefreshTokens]"
+                },
+                {
+                  "value": "[dbo].[tbl_BcsLog]"
+                },
+                {
+                  "value": "[dbo].[tbl_CallActivity]"
+                },
+                {
+                  "value": "[dbo].[tbl_WeightLog]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Farmer_SP_Activities",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Stockist",
+          "match_conditions": [
+            {
+              "key_path": "@TableName",
+              "operator": "contains",
+              "case_insensitive": true,
+              "values": [
+                {
+                  "value": "[dbo].[Warehouses]"
+                }
+              ]
+            }
+          ],
+          "destinations": [
+            {
+              "use_source_broker": true,
+              "brokers": null,
+              "topic": "Stockist",
+              "security_protocol": "PLAINTEXT",
+              "sasl_mechanism": null,
+              "sasl_username": "",
+              "sasl_password": null,
+              "ssl_ca_location": "",
+              "headers": [
+                {
+                  "name": "X-TableName",
+                  "value": "@TableName",
+                  "mode": "from_message"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -275,51 +275,52 @@ def test_default_mode_is_static():
     assert out == [("X", b"literal")]
 
 
-# ---------- # root prefix ----------
+# ---------- @ root prefix ----------
 
 
-def test_preprocess_strips_leading_hash():
-    assert _preprocess("#Message.TableName") == "Message.TableName"
-    assert _preprocess("#items[0].id") == "items[0].id"
-    assert _preprocess("   #foo") == "   foo"  # preserves leading whitespace
+def test_preprocess_strips_leading_at():
+    assert _preprocess("@.Message.TableName") == "Message.TableName"
+    assert _preprocess("@.items[0].id") == "items[0].id"
+    assert _preprocess("@Message.TableName") == "Message.TableName"
+    assert _preprocess("   @.foo") == "   foo"  # preserves leading whitespace
 
 
-def test_preprocess_bare_hash_becomes_root():
-    assert _preprocess("#") == "@"
+def test_preprocess_bare_at_becomes_root():
+    assert _preprocess("@") == "@"
 
 
-def test_preprocess_passthrough_when_no_hash():
+def test_preprocess_passthrough_when_no_at():
     assert _preprocess("Message.TableName") == "Message.TableName"
     assert _preprocess("") == ""
 
 
-def test_evaluate_condition_with_hash_prefix():
-    """`#Message.TableName` should resolve to the same value as `Message.TableName`."""
-    r_hash = _eval(_msg(Message={"TableName": "cattles"}), key_path="#Message.TableName")
+def test_evaluate_condition_with_at_prefix():
+    """`@.Message.TableName` should resolve to the same value as `Message.TableName`."""
+    r_at = _eval(_msg(Message={"TableName": "cattles"}), key_path="@.Message.TableName")
     r_plain = _eval(_msg(Message={"TableName": "cattles"}), key_path="Message.TableName")
-    assert r_hash.matched is True
-    assert r_hash.resolved == r_plain.resolved == "cattles"
+    assert r_at.matched is True
+    assert r_at.resolved == r_plain.resolved == "cattles"
 
 
-def test_evaluate_condition_with_hash_in_value():
-    """`#` should also work in from_message header values."""
+def test_evaluate_condition_with_at_in_value():
+    """`@.` should also work in from_message header values."""
     out = build_headers(
-        [{"name": "X", "value": "#Message.TableName", "mode": "from_message"}],
+        [{"name": "X", "value": "@.Message.TableName", "mode": "from_message"}],
         _msg(Message={"TableName": "Cattles"}),
     )
     assert out == [("X", b"Cattles")]
 
 
-def test_hash_only_resolves_to_root():
-    """A bare `#` means "the whole document" and should match if the
+def test_at_only_resolves_to_root():
+    """A bare `@` means "the whole document" and should match if the
     value being compared against is the JSON string of the doc.
-    Mostly a sanity check that the substitution to `@` works."""
+    Mostly a sanity check that the substitution works."""
     r = _eval(
         _msg(Message={"TableName": "Cattles"}),
-        key_path="#",
+        key_path="@",
         value="Cattles",  # would never match a list/object — but we use a string
     )
-    # `#` -> `@` resolves to the whole dict, which is not a scalar,
+    # `@` resolves to the whole dict, which is not a scalar,
     # so the strict-typing rule returns non-scalar result.
     assert r.matched is False
     assert r.error == "non-scalar result"
