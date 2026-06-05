@@ -499,8 +499,9 @@ function DomainGroupingCard({
   total,
   testMessageParsed,
   showHeader = true,
+  collapsed = false,
+  onToggleCollapse,
 }) {
-  const [collapsed, setCollapsed] = useState(false);
   function patchMC(idx, value) {
     const next = (dg.match_conditions || []).map((m, i) => (i === idx ? value : m));
     onChange({ ...dg, match_conditions: next });
@@ -533,7 +534,7 @@ function DomainGroupingCard({
         <div className="card-header">
           <span
             className="card-title"
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => onToggleCollapse(!collapsed)}
             style={{ cursor: 'pointer', flex: 1 }}
           >
             #{index + 1} — {(dg.name || '(unnamed)')} ·{' '}
@@ -563,7 +564,7 @@ function DomainGroupingCard({
                 </button>
               </>
             ) : null}
-            <button className="btn-link" onClick={() => setCollapsed(!collapsed)}>
+            <button className="btn-link" onClick={() => onToggleCollapse(!collapsed)}>
               {collapsed ? 'Expand' : 'Collapse'}
             </button>
             {onRemove ? (
@@ -739,6 +740,8 @@ export default function DomainGroupingsPanel({ env }) {
     }
   }, [state.testMessage]);
 
+  const [collapsedMap, setCollapsedMap] = useState({});
+
   function setDGs(next) {
     dispatch(patchDraftDGs(env.id, next));
   }
@@ -748,12 +751,41 @@ export default function DomainGroupingsPanel({ env }) {
   function moveDG(from, to) {
     if (to < 0 || to >= dgs.length) return;
     setDGs(moveItem(dgs, from, to));
+    setCollapsedMap((prev) => {
+      const next = { ...prev };
+      const temp = next[from];
+      next[from] = next[to];
+      next[to] = temp;
+      return next;
+    });
   }
   function removeDG(idx) {
     setDGs(dgs.filter((_, i) => i !== idx));
+    setCollapsedMap((prev) => {
+      const next = {};
+      Object.keys(prev).forEach((k) => {
+        const i = parseInt(k, 10);
+        if (i < idx) {
+          next[i] = prev[i];
+        } else if (i > idx) {
+          next[i - 1] = prev[i];
+        }
+      });
+      return next;
+    });
   }
   function addDG() {
     setDGs([...dgs, newDomainGrouping()]);
+  }
+  function collapseAll() {
+    const next = {};
+    dgs.forEach((_, i) => {
+      next[i] = true;
+    });
+    setCollapsedMap(next);
+  }
+  function expandAll() {
+    setCollapsedMap({});
   }
 
   const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'success' | 'error'
@@ -780,10 +812,21 @@ export default function DomainGroupingsPanel({ env }) {
 
   return (
     <div>
-      <div className="row-end mb-3">
+      <div className="row mb-3">
         <button className="btn" onClick={addDG}>
           + Add domain grouping
         </button>
+        <div className="spacer" />
+        {dgs.length > 0 && (
+          <div className="btn-group">
+            <button className="btn" onClick={collapseAll}>
+              Collapse all
+            </button>
+            <button className="btn" onClick={expandAll}>
+              Expand all
+            </button>
+          </div>
+        )}
       </div>
       {dgs.length === 0 ? (
         <p className="muted">No domain groupings yet — add one to start routing.</p>
@@ -798,6 +841,10 @@ export default function DomainGroupingsPanel({ env }) {
             onMove={moveDG}
             total={dgs.length}
             testMessageParsed={testMessageParsed}
+            collapsed={collapsedMap[idx] ?? false}
+            onToggleCollapse={(isCollapsed) =>
+              setCollapsedMap((prev) => ({ ...prev, [idx]: isCollapsed }))
+            }
           />
         ))
       )}
