@@ -60,4 +60,28 @@ export const api = {
   testMessage: (id, message) => request('POST', `/envs/${id}/test`, { message }),
   exportAll: () => request('GET', '/export'),
   importAll: (envelope) => request('POST', '/import', envelope),
+  subscribeToEnvStream: (envId, onStatus, onLog, onError) => {
+    const url = BASE.startsWith('http')
+      ? `${BASE}/envs/${envId}/stream`
+      : `${window.location.origin}${BASE}/envs/${envId}/stream`;
+    const eventSource = new EventSource(url);
+    
+    eventSource.addEventListener('status', (e) => {
+      try { onStatus(JSON.parse(e.data)); } catch {}
+    });
+    
+    eventSource.addEventListener('log', (e) => {
+      try { onLog(JSON.parse(e.data)); } catch {}
+    });
+    
+    if (onError) {
+      eventSource.addEventListener('error', (e) => {
+        try {
+          if (e.data) onError(JSON.parse(e.data));
+        } catch {}
+      });
+    }
+    
+    return () => eventSource.close();
+  },
 };

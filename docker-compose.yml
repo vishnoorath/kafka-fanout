@@ -48,6 +48,10 @@ services:
       # If you need the dev proxy behavior, run `npm run dev` locally
       # and use `docker compose up backend` to talk to the API.
       NODE_ENV: production
+      # Inside Docker, the backend is reachable via its service name.
+      # The vite preview server reads this at startup (process.env) and
+      # uses it as the proxy target for /api/* requests.
+      VITE_BACKEND_URL: http://backend:8000
     depends_on:
       backend:
         condition: service_healthy

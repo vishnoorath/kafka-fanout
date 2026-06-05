@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db import init_db
-from app.routers import envs, health, runtime
+from app.routers import envs, health, runtime, stream
 from app.runtime.manager import RuntimeManager
 
 # RuntimeManager is imported lazily inside the lifespan to avoid a circular
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(envs.router)
     app.include_router(runtime.router)
+    app.include_router(stream.router)
     return app
 
 

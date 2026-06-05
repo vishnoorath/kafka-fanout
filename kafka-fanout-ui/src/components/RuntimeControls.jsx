@@ -34,68 +34,56 @@ export default function RuntimeControls({ env }) {
 
   const [logs, setLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(true);
-  const [activeSubTab, setActiveSubTab] = useState('metrics');
+  const [activeSubTab, setActiveSubTab] = useState('logs');
+  // Ref to the bottom sentinel for auto-scroll
+  const logsBottomRef = useRef(null);
 
-  // Poll status: 2s while starting/running, 10s while stopped, 5s on error.
-  // The effect runs once per env; the interval is read from the ref
-  // each tick so a state change only changes the *next* interval, not
-  // the currently-pending one.
+  // Auto-scroll to bottom whenever new log lines arrive and the Logs tab is visible
   useEffect(() => {
-    let cancelled = false;
-    let timer = null;
-    async function tick() {
-      let live = statusRef.current?.state;
-      try {
-        const s = await api.getStatus(env.id);
-        if (cancelled) return;
-        dispatch({ type: 'SET_STATUS', envId: env.id, status: s });
-        // Use the freshly fetched state directly — statusRef.current is
-        // only updated after React re-renders (via useEffect), so reading
-        // it here would give the *previous* cycle's value.
-        live = s?.state;
-      } catch {
-        // ignore; keep the last-known live value for interval calculation
-      }
-      if (cancelled) return;
-      // Clear any optimistic pending state once the server reports a
-      // terminal state (running or stopped).
-      if (pendingRef.current && (live === 'running' || live === 'stopped' || live === 'error')) {
-        setPendingCmd(null);
-      }
-      const interval =
-        live === 'running' || live === 'starting' ? 2000 : live === 'error' ? 5000 : 10000;
-      timer = setTimeout(tick, interval);
+    if (activeSubTab === 'logs' && logsBottomRef.current) {
+      logsBottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-    tick();
+  }, [logs, activeSubTab]);
+
+  // Stream status and logs via SSE
+  useEffect(() => {
+    // Reset logs on environment change
+    setLogs([]);
+
+    const unsubscribe = api.subscribeToEnvStream(
+      env.id,
+      (newStatus) => {
+        dispatch({ type: 'SET_STATUS', envId: env.id, status: newStatus });
+        if (
+          pendingRef.current &&
+          (newStatus.state === 'running' ||
+            newStatus.state === 'stopped' ||
+            newStatus.state === 'error')
+        ) {
+          setPendingCmd(null);
+        }
+      },
+      (newLogs) => {
+        setLogs((prev) => {
+          const prevIds = new Set(prev.map((l) => l.id));
+          const filteredNew = newLogs.filter((l) => !prevIds.has(l.id));
+          const merged = [...prev, ...filteredNew];
+          merged.sort((a, b) => a.id - b.id);
+          if (merged.length > 200) {
+            return merged.slice(merged.length - 200);
+          }
+          return merged;
+        });
+      },
+      (err) => {
+        console.error('SSE Stream Error:', err);
+      }
+    );
+
     return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
+      unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- statusRef is a ref, not a dep;
-    // we read it at the top of tick() as a fallback when the fetch fails.
   }, [env.id, dispatch]);
-
-  // Logs: refresh every 3s while open.
-  useEffect(() => {
-    if (!showLogs) return;
-    let cancelled = false;
-    let timer = null;
-    async function tick() {
-      try {
-        const rows = await api.getLogs(env.id, 200);
-        if (cancelled) return;
-        setLogs(rows);
-      } catch {
-        // ignore
-      }
-      timer = setTimeout(tick, 3000);
-    }
-    tick();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [env.id, showLogs]);
 
   // Effective state: optimistic "starting" / "stopping" while the
   // command is in flight, otherwise the server's last reported state.
@@ -183,6 +171,9 @@ export default function RuntimeControls({ env }) {
             }}
           >
             Recent Logs
+            {logs.length > 0 && (
+              <span className="tab-count">({logs.length})</span>
+            )}
           </button>
         </div>
 
@@ -191,7 +182,7 @@ export default function RuntimeControls({ env }) {
         ) : showLogs ? (
           <div className="logs-panel mt-2">
             {logs.length === 0 ? (
-              <div className="muted">No log lines yet.</div>
+              <div className="muted">No log lines yet. Start the consumer to see live logs.</div>
             ) : (
               <div className="logs-grid">
                 <div className="log-header">Timestamp</div>
@@ -200,10 +191,11 @@ export default function RuntimeControls({ env }) {
                 {logs.map((l) => (
                   <React.Fragment key={l.id}>
                     <div className="log-cell ts">{l.ts}</div>
-                    <div className={`log-cell level level-${l.level}`}>{l.level}</div>
+                    <div className={`log-cell level level-${l.level?.toLowerCase()}`}>{l.level}</div>
                     <div className="log-cell message">{l.message}</div>
                   </React.Fragment>
                 ))}
+                <div ref={logsBottomRef} />
               </div>
             )}
           </div>

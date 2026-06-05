@@ -36,8 +36,6 @@ function MainPane() {
     <SimulationTab env={env} />
   ) : state.activeTab === 'topology' ? (
     <VisualTopology env={env} />
-  ) : state.activeTab === 'runtime' ? (
-    <RuntimeControls env={env} />
   ) : (
     <DomainGroupingsPanel env={env} />
   );
@@ -81,8 +79,19 @@ function MainPane() {
         </div>
       )}
       <div className="main-content">
-        <div className="scrollable-panel">
-          {content}
+        <div className={`scrollable-panel${state.activeTab === 'runtime' && dgIndex == null ? ' runtime-active' : ''}`}>
+          {/*
+           * RuntimeControls is always mounted (never conditionally removed)
+           * so the SSE EventSource stays alive and logs accumulate even
+           * while the user is on another tab. We toggle visibility via CSS.
+           */}
+          <div
+            className="runtime-panel"
+            style={{ display: state.activeTab === 'runtime' && dgIndex == null ? 'flex' : 'none' }}
+          >
+            <RuntimeControls env={env} />
+          </div>
+          {(state.activeTab !== 'runtime' || dgIndex != null) && content}
         </div>
       </div>
     </>

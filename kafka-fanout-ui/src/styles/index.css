@@ -96,6 +96,50 @@ a:hover {
   padding: var(--space-5);
 }
 
+/* When Runtime tab is active, the logs-panel handles its own scroll.
+   Remove outer padding and suppress outer overflow to avoid double-scrollbars. */
+.scrollable-panel.runtime-active {
+  overflow: hidden;
+  padding: 0;
+}
+
+/* When the Runtime tab is active, the scrollable-panel should not scroll —
+   the logs-panel inside handles its own overflow. We achieve this by making
+   the runtime-panel wrapper a flex column that fills the scrollable area. */
+.runtime-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-5);
+  /* Prevent the card from overflowing the panel */
+  box-sizing: border-box;
+}
+
+/* The card inside the runtime panel fills all remaining height */
+.runtime-panel > .card {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  margin-top: 0;
+}
+
+/* The body of the card (below header and button row) fills the rest */
+.runtime-panel > .card > .mt-3 {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* Sub-tabs + panel fill the card body */
+.runtime-panel > .card > .mt-3 > div:not(.tabs) {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .panel-resizer-h {
   height: 4px;
   cursor: row-resize;
@@ -767,7 +811,8 @@ a:hover {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-2);
-  max-height: 240px;
+  flex: 1 1 0;
+  min-height: 200px;
   overflow: auto;
   padding: 0;
 }
