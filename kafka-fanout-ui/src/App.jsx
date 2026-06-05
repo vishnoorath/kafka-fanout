@@ -17,42 +17,6 @@ import VisualTopology from './components/VisualTopology.jsx';
 function MainPane() {
   const { state, dispatch } = useEnvs();
   const env = state.envs.find((e) => e.id === state.selectedId);
-  const [runtimeHeight, setRuntimeHeight] = useState(() => {
-    try {
-      const stored = localStorage.getItem('fanout:runtime_h');
-      return stored ? parseInt(stored, 10) : 280;
-    } catch {
-      return 280;
-    }
-  });
-  const isDragging = useRef(false);
-
-  useEffect(() => {
-    function handleMouseMove(e) {
-      if (!isDragging.current) return;
-      const container = document.querySelector('.main-content');
-      if (!container) return;
-      const containerRect = container.getBoundingClientRect();
-      const newHeight = Math.max(120, Math.min(600, containerRect.bottom - e.clientY));
-      setRuntimeHeight(newHeight);
-      try {
-        localStorage.setItem('fanout:runtime_h', String(newHeight));
-      } catch {
-        // ignore
-      }
-    }
-    function handleMouseUp() {
-      isDragging.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
 
   if (!env) {
     return (
@@ -72,6 +36,8 @@ function MainPane() {
     <SimulationTab env={env} />
   ) : state.activeTab === 'topology' ? (
     <VisualTopology env={env} />
+  ) : state.activeTab === 'runtime' ? (
+    <RuntimeControls env={env} />
   ) : (
     <DomainGroupingsPanel env={env} />
   );
@@ -106,23 +72,17 @@ function MainPane() {
           >
             Visual Topology
           </button>
+          <button
+            className={`tab ${state.activeTab === 'runtime' ? 'active' : ''}`}
+            onClick={() => dispatch({ type: 'SET_TAB', tab: 'runtime' })}
+          >
+            Runtime
+          </button>
         </div>
       )}
       <div className="main-content">
         <div className="scrollable-panel">
           {content}
-        </div>
-        <div
-          className="panel-resizer-h"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            isDragging.current = true;
-            document.body.style.cursor = 'row-resize';
-            document.body.style.userSelect = 'none';
-          }}
-        />
-        <div className="bottom-pane" style={{ height: `${runtimeHeight}px` }}>
-          <RuntimeControls env={env} />
         </div>
       </div>
     </>
