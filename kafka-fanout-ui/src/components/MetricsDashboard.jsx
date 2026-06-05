@@ -32,14 +32,14 @@ export default function MetricsDashboard({ status }) {
       label: 'Consumed',
       value: status?.messages_consumed ?? 0,
       rate: status?.consumed_rate ?? 0.0,
-      color: 'var(--primary)',
+      color: 'var(--accent)',
       bg: 'rgba(99, 102, 241, 0.08)',
     },
     {
       label: 'Routed',
       value: status?.messages_routed ?? 0,
       rate: status?.routed_rate ?? 0.0,
-      color: 'var(--success)',
+      color: 'var(--ok)',
       bg: 'rgba(34, 197, 94, 0.08)',
     },
     {
@@ -157,7 +157,7 @@ export default function MetricsDashboard({ status }) {
               {/* Smooth line plots */}
               <polyline
                 fill="none"
-                stroke="var(--primary)"
+                stroke="var(--accent)"
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -165,7 +165,7 @@ export default function MetricsDashboard({ status }) {
               />
               <polyline
                 fill="none"
-                stroke="var(--success)"
+                stroke="var(--ok)"
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"

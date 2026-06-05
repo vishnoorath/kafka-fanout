@@ -914,8 +914,8 @@ a:hover {
   border-radius: 50%;
   display: inline-block;
 }
-.legend-dot.consumed { background: var(--primary); }
-.legend-dot.routed { background: var(--success); }
+.legend-dot.consumed { background: var(--accent); }
+.legend-dot.routed { background: var(--ok); }
 .legend-dot.failed { background: var(--err); }
 .chart-wrapper {
   width: 100%;
@@ -1060,7 +1060,7 @@ a:hover {
 .sim-dot.error { background: var(--err); }
 .sim-path { font-family: var(--font-mono); font-weight: 500; }
 .sim-op { color: var(--text-soft); }
-.sim-val { font-family: var(--font-mono); color: var(--primary); }
+.sim-val { font-family: var(--font-mono); color: var(--accent); }
 .sim-resolved { font-family: var(--font-mono); color: var(--text-muted); }
 .sim-error-hint { color: var(--err); }
 .sim-destinations-section {
@@ -1141,7 +1141,7 @@ a:hover {
   box-shadow: 0 4px 12px rgba(34, 197, 94, 0.1);
 }
 .source-node {
-  border-left: 4px solid var(--primary);
+  border-left: 4px solid var(--accent);
 }
 .dg-node {
   border-left: 4px solid var(--warn);
@@ -1150,7 +1150,7 @@ a:hover {
   border-left-color: var(--ok);
 }
 .dest-node {
-  border-left: 4px solid var(--success);
+  border-left: 4px solid var(--ok);
   margin-bottom: var(--space-2);
 }
 .node-icon {
