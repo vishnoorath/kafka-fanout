@@ -105,6 +105,12 @@ class ProducerPool:
                 acks="all",
                 enable_idempotence=True,
                 max_batch_size=131072,
+                # Bound individual produce RPCs so a stuck broker can't
+                # wedge the producer (and therefore shutdown) indefinitely.
+                request_timeout_ms=30000,
+                # Back off between retries instead of hammering the broker
+                # when min.insync.replicas isn't satisfied.
+                retry_backoff_ms=500,
                 **sec,
             )
             await producer.start()
