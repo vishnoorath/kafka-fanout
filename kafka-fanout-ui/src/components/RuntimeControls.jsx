@@ -144,6 +144,32 @@ export default function RuntimeControls({ env }) {
     }
   }
 
+  // Clear Run logs older than 5 minutes from the backend log buffer,
+  // and prune the locally-streamed log buffer to match.
+  const [clearing, setClearing] = useState(false);
+  async function handleClearLogs() {
+    if (clearing) return;
+    setClearing(true);
+    const cutoffMs = Date.now() - 5 * 60 * 1000;
+    // Optimistic local prune so the UI snaps to the cleared state.
+    setLogs((prev) => prev.filter((l) => {
+      const t = l.ts ? new Date(l.ts).getTime() : 0;
+      return Number.isFinite(t) && t >= cutoffMs;
+    }));
+    try {
+      const res = await api.clearLogs(env.id, 300);
+      dispatch({
+        type: 'TOAST',
+        kind: 'success',
+        text: `Cleared ${res?.deleted ?? 0} log line${res?.deleted === 1 ? '' : 's'} older than 5 min`,
+      });
+    } catch (err) {
+      dispatch({ type: 'TOAST', kind: 'error', text: `Clear failed: ${err.message}` });
+    } finally {
+      setClearing(false);
+    }
+  }
+
   return (
     <div className="card mt-4">
       <div className="card-header">
@@ -164,6 +190,14 @@ export default function RuntimeControls({ env }) {
           disabled={stateName === 'stopped' || stateName === 'stopping'}
         >
           Stop
+        </button>
+        <button
+          className="btn"
+          onClick={handleClearLogs}
+          disabled={clearing}
+          title="Delete run logs older than 5 minutes"
+        >
+          {clearing ? 'Clearing…' : 'Clear'}
         </button>
         <span className="muted">
           consumed: <strong>{counters.consumed}</strong> · routed: <strong>{counters.routed}</strong> · failed:{' '}

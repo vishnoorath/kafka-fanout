@@ -57,6 +57,8 @@ export const api = {
   resetOffsets: (id) => request('POST', `/envs/${id}/reset-offsets`),
   getStatus: (id) => request('GET', `/envs/${id}/status`),
   getLogs: (id, limit = 200) => request('GET', `/envs/${id}/logs?limit=${limit}`),
+  clearLogs: (id, olderThanSeconds = 300) =>
+    request('POST', `/envs/${id}/logs/clear?older_than_seconds=${olderThanSeconds}`),
   testMessage: (id, message) => request('POST', `/envs/${id}/test`, { message }),
   exportAll: () => request('GET', '/export'),
   importAll: (envelope) => request('POST', '/import', envelope),
