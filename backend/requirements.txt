@@ -5,6 +5,7 @@ aiosqlite>=0.20
 pydantic>=2.7
 pydantic-settings>=2.4
 aiokafka>=0.11
+python-snappy>=0.6    # snappy compression codec for Kafka messages
 jmespath>=1.0
 python-multipart>=0.0.9
 pytest>=8.0
