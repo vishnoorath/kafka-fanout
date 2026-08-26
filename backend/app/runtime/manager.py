@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from aiokafka.admin import AIOKafkaAdminClient
@@ -329,3 +329,19 @@ class RuntimeManager:
             )
             session.add(row)
             await session.commit()
+
+    async def clear_logs(self, env_id: str, older_than_seconds: int = 300) -> int:
+        """Delete log rows older than `older_than_seconds` for the env.
+
+        Used by the UI "Clear" button to prune the in-DB log buffer.
+        Returns the number of rows deleted.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)).isoformat()
+        async with session_scope() as session:
+            stmt = delete(RuntimeLog).where(
+                RuntimeLog.env_id == env_id,
+                RuntimeLog.ts < cutoff,
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount or 0

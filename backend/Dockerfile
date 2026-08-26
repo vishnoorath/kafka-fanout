@@ -12,7 +12,7 @@ WORKDIR /app
 # Install OS-level deps that some of our wheels expect (gcc for any
 # sdist fallback; curl is handy for the healthcheck).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc curl \
+    && apt-get install -y --no-install-recommends gcc curl libsnappy-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first so the layer caches when only source changes.

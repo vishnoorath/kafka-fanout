@@ -89,6 +89,18 @@ async def get_logs(
     return rows
 
 
+@router.post("/envs/{env_id}/logs/clear")
+async def clear_logs(
+    env_id: str,
+    request: Request,
+    older_than_seconds: int = 300,
+):
+    """Delete runtime log rows older than the cutoff (default: 5 minutes)."""
+    manager = _manager(request)
+    deleted = await manager.clear_logs(env_id, older_than_seconds=older_than_seconds)
+    return {"ok": True, "deleted": deleted}
+
+
 # ---------- test endpoint (pure compute) ----------
 
 
